@@ -1,0 +1,908 @@
+---
+title: "Untitled"
+author: "Andrew Hanson"
+date: "2024-05-24"
+output:
+  html_document:
+    number_sections: true
+    theme: spacelab
+    toc: yes
+    toc_depth: 3
+    toc_float:
+      collapsed: true
+params:
+  write_data_mode: 'write'
+---
+
+```{r setup, include=FALSE}
+# run this program
+# Rscript -e "rmarkdown::render('2mimic_make_model_data.Rmd', params=list(write_data_mode='test'))"
+
+library(dplyr)
+library(tidyr)
+library(sqldf)
+library(arsenal)
+
+serial_minutes <- 15
+min_serial_count <- 2*4
+max_serial_count <- 24*4
+```
+
+```{r define_serialize}
+srlz <- function(demo_data=qdemo, data=map, minutes=15) {
+  tmp1 <- demo_data
+  
+  tmp2 <- data %>%
+    dplyr::select(
+      subject_id, intime, charttime, chartvalue
+      )
+
+  tmp2 <- tmp2 %>%
+    arrange(
+      subject_id, charttime
+      ) %>%
+    mutate(
+      vlid = 1:n()
+    )
+  
+  # select the right ids into the crosswalk
+  cw <- sqldf(paste("
+   with added_row_number AS (
+    select *, ROW_NUMBER() OVER(PARTITION BY id ORDER BY charttime DESC) as row_number
+    from tmp1 as a left join tmp2 as b
+    on a.subject_id=b.subject_id and b.charttime <= a.dttm and a.dttm-b.charttime < ", minutes*60,
+   ")
+    select id, vlid from added_row_number where row_number = 1"
+  ))
+  
+  # use the crosswalk
+  out <- demo_data %>%
+    left_join(cw, 'id') %>%
+    left_join(dplyr::select(tmp2, chartvalue, charttime, vlid), 'vlid') %>%
+    arrange(subject_id, intime, dttm)
+
+  out <- out %>%
+    dplyr::select(-vlid)
+  
+  return(out)
+}
+```
+
+```{r define_lvcf}
+lvcf <- function(data, hrs, value) {
+  
+  tmp <- data
+  
+  tmp[['value']] <- tmp[[value]]
+    
+  cw <- sqldf(paste("
+   with added_row_number AS (
+    select *, ROW_NUMBER() OVER(PARTITION BY id ORDER BY measurement_dttm DESC) as row_number
+    from (select subject_id, intime, dttm, id from tmp where value IS NULL) as a left join 
+         (select subject_id, intime, dttm as measurement_dttm, id as measurement_id from tmp where value IS NOT NULL) as b
+    on a.subject_id=b.subject_id and a.intime=b.intime and b.measurement_dttm <= a.dttm and a.dttm-b.measurement_dttm < ", hrs*3600,
+   ")
+    select id, measurement_id from added_row_number where row_number = 1"
+  ))
+  
+  # use the crosswalk
+  out <- data %>%
+    left_join(cw, 'id') %>%
+    left_join(rename(dplyr::select(tmp, value, id), lvcf = value), c('measurement_id' = 'id')) %>%
+    arrange(subject_id, intime, dttm)
+
+  out <- out %>%
+    dplyr::select(
+      -measurement_id
+      )
+  
+  return(out)
+}
+```
+
+```{r demo_data}
+demo <- read.csv(file='./derived/v3/demo.csv'); dim(demo)
+
+icustay_times <- read.csv(file='./derived/v3/icustay_times.csv')
+
+demo <- demo %>%
+  inner_join(icustay_times, c('subject_id','hadm_id','stay_id')); dim(demo)
+
+#ck <- demo %>%
+#  mutate(
+#    d1 = round(as.numeric(difftime(as.POSIXct(intime_hr), as.POSIXct(intime), units='hours')), digits=1),
+#    d2 = round(as.numeric(difftime(as.POSIXct(outtime_hr), as.POSIXct(outtime), units='hours')), digits=1),
+#    d3 = round(as.numeric(difftime(as.POSIXct(outtime), as.POSIXct(intime), units='hours')), digits=1),
+#    d4 = round(as.numeric(difftime(as.POSIXct(outtime_hr), as.POSIXct(intime_hr), units='hours')), digits=1)
+#  ) %>%
+#  dplyr::select(
+#    intime, outtime, intime_hr, outtime_hr, d1, d2, d3, d4
+#  )
+
+demo <- demo %>%
+  mutate(
+    intime = intime_hr
+  ) %>%
+  dplyr::select(
+    -intime_hr, -outtime_hr
+  )
+
+demo <- demo %>%
+  group_by(subject_id, intime) %>%
+  slice_head(n=1) %>%
+  ungroup()
+
+demo <- demo %>%
+  mutate(
+    intime = as.POSIXct(intime), 
+    outtime = as.POSIXct(outtime),
+    preiculos = if_else(preiculos <= 0, 0, preiculos),
+    lpre_icu_days = log(preiculos + 0.001)
+  ) %>%
+  distinct()
+
+demo <- demo %>%
+  mutate(
+    hosp_death = hospital_expire_flag,
+    hosp_spdttm = dischtime,
+    hosp_days = round(as.numeric(difftime(hosp_spdttm, admittime, units='days')), digits=3),
+    prlos_death = case_when(
+      hosp_death == 1 ~ 1,
+      as.numeric(difftime(outtime, intime, units='days')) > 14 ~ 1,
+      TRUE ~ 0
+    ),
+    male = if_else(gender == 'F', 0, 1)
+  )
+  
+demo <- demo %>%
+  rename(
+    surg = surgical, transp = transplant, charlson_score = charlson_comorbidity_index, htn_hist = hypertension,
+    mi_hist = myocardial_infarct, chf_hist = congestive_heart_failure, pvd_hist = peripheral_vascular_disease,
+    asthma_hist = asthma, ild_hist = ild, connective_tissue_disease_hist = ctd, 
+    dementia_hist = dementia, chronic_pulmonary_disease_hist = chronic_pulmonary_disease, dm_hist = diabetes_without_cc, 
+    pud_hist = peptic_ulcer_disease, cirr_mild_liver_disease_hist = mild_liver_disease, 
+    hemiplegia_paraplegia_hist = paraplegia, mod_sev_kidney_disease_hist = renal_disease,
+    dm_complications_hist = diabetes_with_cc, cancer_tumor_hist = malignant_cancer, 
+    mod_sev_liver_disease_hist = severe_liver_disease, metastatic_cancer_hist = metastatic_solid_tumor,
+    aids_hist = aids, copd_hist = copd, leukemia_hist = leukemia, lymphoma_hist = lymphoma, cva_hist = cva
+  ) %>%
+  dplyr::select(
+    subject_id, hadm_id, stay_id, intime, outtime, admittime, dischtime,
+    age, male, lpre_icu_days, bmi, charlson_score, surg, transp, height, weight, htn_hist, mi_hist, chf_hist, pvd_hist, dementia_hist,
+    cva_hist, copd_hist, asthma_hist, ild_hist, chronic_pulmonary_disease_hist, connective_tissue_disease_hist, dm_hist, pud_hist, 
+    cirr_mild_liver_disease_hist, hemiplegia_paraplegia_hist,
+    mod_sev_kidney_disease_hist, dm_complications_hist, cancer_tumor_hist, leukemia_hist, lymphoma_hist, mod_sev_liver_disease_hist,
+    metastatic_cancer_hist, aids_hist, hosp_death, prlos_death
+  )
+```
+
+```{r read_omr}
+`physionet-data.mimic_hosp.omr` <- read.csv(file='./hosp/omr.csv.gz')
+```
+
+```{r check_bmi}
+tmp <- `physionet-data.mimic_hosp.omr` %>%
+  filter(result_name == 'BMI (kg/m2)') %>% 
+  mutate(
+    chartdate = as.Date(chartdate),
+    bmi = as.numeric(result_value)
+  ) %>%
+  filter(10 <= bmi & bmi < 100) %>%
+  dplyr::select(
+    subject_id, chartdate, bmi
+  )
+
+tmp <- tmp %>%
+  inner_join(
+    dplyr::select(demo, subject_id, intime), 'subject_id', relationship='many-to-many'
+  ) %>%
+  mutate(
+    indate = as.Date(intime),
+    dif = abs(as.numeric(indate) - as.numeric(chartdate)),
+    prior_flag = as.numeric(chartdate <= indate)
+  )
+
+tmp <- tmp %>%
+  arrange(subject_id, intime, prior_flag, dif) %>%
+  group_by(subject_id, intime, prior_flag) %>%
+  slice_head(n=1) %>%
+  ungroup() %>%
+  dplyr::select(
+    subject_id, intime, prior_flag, dif, bmi 
+  )
+
+demo <- demo %>%
+  left_join(filter(tmp, prior_flag == 1), c('subject_id','intime')) %>%
+  dplyr::select(
+    -prior_flag
+  )
+
+demo <- demo %>%
+  left_join(filter(tmp, prior_flag == 0), c('subject_id','intime')) %>%
+  dplyr::select(
+    -prior_flag
+  )
+
+demo <- demo %>%
+  mutate(
+    bmi = coalesce(bmi.x, bmi.y, bmi)
+  ) %>%
+  dplyr::select(
+    -ends_with(".x"), -ends_with(".y")
+  )
+```
+
+```{r check_height}
+tmp <- `physionet-data.mimic_hosp.omr` %>%
+  filter(result_name == 'Height (Inches)') %>%
+  mutate(
+    chartdate = as.Date(chartdate),
+    height = as.numeric(result_value)*2.54
+  ) %>%
+  filter(100 <= height & height < 250) %>%
+  dplyr::select(
+    subject_id, chartdate, height
+  )
+
+tmp <- tmp %>%
+  inner_join(
+    dplyr::select(demo, subject_id, intime), 'subject_id', relationship='many-to-many'
+  ) %>%
+  mutate(
+    indate = as.Date(intime),
+    dif = abs(as.numeric(indate) - as.numeric(chartdate)),
+    prior_flag = as.numeric(chartdate <= indate)
+  )
+
+tmp <- tmp %>%
+  arrange(subject_id, intime, prior_flag, dif) %>%
+  group_by(subject_id, intime, prior_flag) %>%
+  slice_head(n=1) %>%
+  ungroup() %>%
+  dplyr::select(
+    subject_id, intime, prior_flag, dif, height 
+  )
+
+demo <- demo %>%
+  left_join(filter(tmp, prior_flag == 1), c('subject_id','intime')) %>%
+  dplyr::select(
+    -prior_flag
+  )
+
+demo <- demo %>%
+  left_join(filter(tmp, prior_flag == 0), c('subject_id','intime')) %>%
+  dplyr::select(
+    -prior_flag
+  )
+
+demo <- demo %>%
+  mutate(
+    height = coalesce(height.x, height.y, height)
+  )
+
+demo <- demo %>%
+  mutate(
+    bmi = if_else(is.na(bmi), weight / (height/100)^2, bmi)
+  ) %>%
+  dplyr::select(
+    -ends_with(".x"), -ends_with(".y")
+  )
+```
+
+```{r read_microbiology}
+`physionet-data.mimic_hosp.microbiologyevents` <- read.csv(file='./hosp/microbiologyevents.csv.gz')
+```
+
+```{r pneumonia_datetime}
+# pneumonia
+tmp <- `physionet-data.mimic_hosp.microbiologyevents` %>%
+  filter(spec_type_desc == 'SPUTUM') %>%
+  filter(org_name != '' & org_itemid != 90856) %>%
+  mutate(
+    charttime = as.POSIXct(charttime, format="%Y-%m-%d %H:%M:%S"), 
+    positiveculture = 1
+  ) %>%
+  dplyr::select(
+    subject_id, charttime, positiveculture
+  ) %>%
+  distinct()
+
+tmp <- tmp %>%
+  inner_join(dplyr::select(
+    demo, subject_id, hadm_id, stay_id, admittime, dischtime), 'subject_id', relationship='many-to-many'
+  )
+
+tmp <- tmp %>%
+  filter(as.Date(admittime) <= as.Date(charttime) & as.Date(charttime) <= as.Date(dischtime)) %>%
+  arrange(subject_id, hadm_id, stay_id, charttime) %>%
+  group_by(subject_id, hadm_id, stay_id) %>%
+  slice_head(n=1) %>%
+  ungroup() %>%
+  rename(
+    pneumoniadttm = charttime
+  ) %>%
+  dplyr::select(
+    subject_id, hadm_id, stay_id, pneumoniadttm
+  )
+  
+demo <- demo %>%
+  left_join(tmp, c('subject_id','hadm_id', 'stay_id'))
+```
+
+```{r expand_qdemo}
+qdemo <- demo %>%
+  mutate(
+    start_dttm = intime - as.numeric(format(intime, format="%M"))*60
+  ) %>%
+  rowwise() %>%
+  mutate(subject_id, intime, outtime, dttm = list(start_dttm + seq(0, 48*3600, by = serial_minutes*60))) %>%
+  unnest(dttm) %>%
+  ungroup() %>%
+  filter(
+    intime <= dttm & dttm <= outtime & dttm <= intime + 24*3600
+  ) %>%
+  dplyr::select(
+    subject_id, intime, dttm
+  )
+
+qdemo <- qdemo %>%
+  arrange(subject_id, intime, dttm) %>%
+  mutate(
+    id = 1:n()
+  )
+
+qdemo <- qdemo %>%
+  arrange(subject_id, intime, dttm) %>%
+  group_by(subject_id, intime) %>%
+  mutate(
+    row_id = 1:n()
+  ) %>%
+  ungroup()
+
+tmp <- qdemo %>%
+  arrange(subject_id, intime, dttm) %>%
+  group_by(subject_id, intime) %>%
+  mutate(
+    count = n()
+  ) %>%
+  slice_head(n=1) %>%
+  dplyr::select(
+    subject_id, intime, count
+  )
+  
+tmp <- tmp %>%
+  filter(
+    count >= min_serial_count
+  ) %>%
+  dplyr::select(
+    -count
+  )
+
+qdemo <- qdemo %>%
+  inner_join(tmp, c('subject_id','intime'))
+
+qdemo <- qdemo %>%
+  arrange(subject_id, intime, dttm) %>%
+  group_by(subject_id, intime) %>%
+  slice_head(n = max_serial_count) %>%
+  ungroup()
+```
+
+```{r inicu_flag}
+cw <- sqldf('
+ select distinct a.id, 1 as inicu
+ from qdemo as a join demo as b
+ on a.subject_id = b.subject_id and b.intime <= a.dttm and a.dttm < b.outtime
+ '
+)
+
+qdemo <- qdemo %>%
+  left_join(cw, 'id') %>%
+  replace_na(list(inicu = 0))
+```
+
+```{r vitals_data}
+vitals <- read.csv(file='./derived/v3/vitals.csv')
+
+vitals <- vitals %>%
+  mutate(
+    charttime = as.POSIXct(charttime)
+  )
+```
+
+```{r check_vitals_data}
+vitals <- vitals %>%
+  pivot_longer(cols=peep:rr, names_to = 'chartname', values_to = 'chartvalue') %>%
+  filter(!is.na(chartvalue))
+
+tmp <- demo %>%
+  dplyr::select(
+    subject_id, hadm_id, stay_id, intime, outtime
+  )
+
+vitals <- vitals %>%
+  inner_join(tmp, 'subject_id', relationship='many-to-many')
+
+vitals <- vitals %>%
+  filter(intime - 6*3600 <= charttime & charttime <= intime + 7*24*3600)
+
+vitals <- vitals %>%
+  mutate(
+    chartname = toupper(chartname)
+  )
+```
+
+```{r join_vitals_data}
+vitals_list <- c("peep", "tidal_vol", "map", "hr", "fio2", "spo2", "temp", "rr")
+
+for (vital in vitals_list){
+  qdemo <- srlz(data=filter(vitals, chartname == toupper({vital})), minutes=serial_minutes) %>% 
+    rename({{vital}} := chartvalue) %>% 
+    dplyr::select(-charttime)
+}
+```
+
+```{r labs_data}
+labs <- read.csv(file='./derived/v3/labs.csv')
+
+labs <- labs %>%
+  mutate(
+    charttime = as.POSIXct(charttime)
+  )
+```
+
+```{r check_labs_data}
+labs <- labs %>%
+  pivot_longer(cols=glucose:ast, names_to = 'chartname', values_to = 'chartvalue') %>%
+  filter(!is.na(chartvalue))
+
+tmp <- demo %>%
+  dplyr::select(
+    subject_id, hadm_id, stay_id, intime, outtime
+  )
+
+labs <- labs %>%
+  inner_join(tmp, c('subject_id','hadm_id'), relationship='many-to-many')
+
+labs <- labs %>%
+  filter(intime - 6*3600 <= charttime & charttime <= intime + 7*24*3600)
+
+labs <- labs %>%
+  mutate(
+    chartname = toupper(chartname)
+  )
+```
+
+```{r join_labs_data}
+labs_list <- c("glucose", "hgb", "potassium", "sodium", "platelet", "hct", "ph", "creatinine", "wbc", "bun",
+               "hco3", "paco2", "pao2", "lactate", "inr", "anion_gap", "ptt", "ast")
+
+labs1 <- labs %>%
+  filter(charttime < intime) %>%
+  arrange(subject_id, intime, chartname, charttime) %>%
+  group_by(subject_id, intime, chartname) %>%
+  slice_tail(n=1) %>%
+  ungroup() %>%
+  mutate(
+    row_id = 1
+  ) %>%
+  dplyr::select(
+    subject_id, intime, row_id, chartname, charttime, chartvalue
+  )
+
+labs1 <- labs1 %>%
+  dplyr::select(
+    subject_id, intime, row_id, chartname, chartvalue
+  )
+
+for (lab in labs_list){
+  qdemo <- srlz(data=filter(labs, chartname == toupper({lab})), minutes=serial_minutes) %>% 
+    dplyr::select(-charttime)
+  
+  qdemo <- qdemo %>%
+    left_join(
+      filter(labs1, chartname == toupper({lab})),  c('subject_id','intime','row_id')
+      ) %>%
+    mutate(
+      {{lab}} := coalesce(chartvalue.x, chartvalue.y)
+    ) %>%
+    dplyr::select(
+      -chartname, -chartvalue.x, -chartvalue.y
+    )
+}
+```
+
+```{r gcs}
+gcs <- read.csv(file='./derived/v3/gcs.csv')
+
+gcs <- gcs %>%
+  mutate(
+    charttime = as.POSIXct(charttime)
+  ) %>%
+  dplyr::select(
+    subject_id, stay_id, charttime, gcs
+  )
+
+gcs <- gcs %>%
+  inner_join(
+    dplyr::select(demo, subject_id, stay_id, hadm_id, intime, outtime), c('subject_id','stay_id')
+  ) %>%
+  filter(
+    intime <= charttime & charttime <= outtime
+  )
+
+qdemo <- srlz(data=rename(gcs, chartvalue = gcs), minutes=serial_minutes) %>% rename(gcs = chartvalue) %>% dplyr::select(-charttime)
+```
+
+```{r read_inputevents}
+`physionet-data.mimic_icu.inputevents` <- read.csv(file='./icu/inputevents.csv.gz')
+
+`physionet-data.mimic_icu.d_items` <- read.csv(file='./icu/d_items.csv.gz')
+```
+
+```{r cpn}
+tmp <- `physionet-data.mimic_icu.d_items` %>%
+  filter(category == 'Nutrition - Parenteral') %>%
+  dplyr::select(
+    itemid
+  ) %>%
+  distinct() %>%
+  inner_join(`physionet-data.mimic_icu.inputevents`, 'itemid') %>%
+  dplyr::select(
+    subject_id, starttime, endtime
+  )
+
+tmp <- tmp %>%
+  inner_join(
+    dplyr::select(qdemo, subject_id, dttm), 'subject_id', relationship='many-to-many'
+  ) %>%
+  filter(
+    starttime <= dttm & dttm <= endtime
+  )
+
+tmp <- tmp %>%
+  mutate(
+    cpn = 1
+  ) %>%
+  dplyr::select(
+    subject_id, dttm, cpn
+  ) %>%
+  distinct()
+
+qdemo <- qdemo %>%
+  left_join(tmp, c('subject_id','dttm')) %>%
+  replace_na(list(cpn = 0))
+```
+
+```{r vasoactives}
+vasos <- read.csv(file='./derived/v3/vasoactives.csv')
+```
+
+```{r vasoactives_flags}
+tmp <- vasos %>%
+  mutate(
+    starttime = as.POSIXct(starttime), 
+    endtime = as.POSIXct(endtime),
+    med = toupper(med), 
+    flag = 1
+  ) %>%
+  dplyr::select(
+    stay_id, starttime, endtime, med, flag
+  ) %>%
+  distinct() %>%
+  inner_join(
+    distinct(dplyr::select(demo, stay_id, subject_id)), 'stay_id', relationship='many-to-many'
+  ) %>%
+  inner_join(
+    distinct(dplyr::select(qdemo, subject_id, dttm)), 'subject_id', relationship='many-to-many'
+  )
+
+tmp <- tmp %>%
+  filter(
+    starttime <= dttm & dttm < endtime
+  ) %>%
+  dplyr::select(
+    subject_id, dttm, med, flag
+  ) %>%
+  distinct()
+
+tmp <- tmp %>%
+  pivot_wider(id_cols=subject_id:dttm, names_from = med, values_from = flag)
+
+qdemo <- qdemo %>% 
+  left_join(tmp, c('subject_id','dttm')) %>%
+  replace_na(list(DOBUTAMINE = 0, NOREPINEPHRINE = 0, EPINEPHRINE = 0, VASOPRESSIN = 0))
+```
+
+```{r ringers_lactate}
+tmp <- `physionet-data.mimic_icu.inputevents` %>% 
+  filter(itemid %in% c(225827, 225828)) %>%
+  mutate(
+    starttime = as.POSIXct(starttime), 
+    endtime = as.POSIXct(endtime)
+  ) %>%
+  dplyr::select(
+    subject_id, starttime, endtime, amount, totalamount, ordercategoryname, ordercategorydescription
+  )
+
+tmp <- tmp %>%
+  mutate(
+    endtime = case_when(
+      ordercategorydescription != 'Continuous IV' ~ starttime + 3600,
+      TRUE ~ endtime
+    )
+  )
+
+tmp <- tmp %>%
+  mutate(
+    ck = ((as.numeric(endtime) - as.numeric(starttime)) / 3600),
+    fluid_rate = 0.25 * round(amount / ((as.numeric(endtime) - as.numeric(starttime)) / 3600), digits=3)
+  )
+
+tmp <- tmp %>%
+  inner_join(
+    dplyr::select(qdemo, subject_id, dttm), 'subject_id', relationship='many-to-many'
+  )
+
+tmp <- tmp %>%
+  filter(
+    starttime <= dttm & dttm < endtime
+  ) %>%
+  group_by(subject_id, dttm) %>%
+  mutate(
+    lactring = sum(fluid_rate)
+  ) %>%
+  slice_head(n=1) %>%
+  ungroup() %>%
+  dplyr::select(
+    subject_id, dttm, lactring
+  )
+
+qdemo <- qdemo %>%
+  left_join(tmp, c('subject_id','dttm')) %>%
+  replace_na(list(lactring = 0))
+```
+
+```{r ventilation}
+vent <- read.csv(file='./derived/v3/ventilation.csv')
+```
+
+```{r ventilation_flags}
+tmp <- vent %>%
+  filter(!is.na(ventilation_status)) %>%
+  filter(ventilation_status != 'None') %>%
+  mutate(
+    starttime = as.POSIXct(starttime), 
+    endtime = as.POSIXct(endtime),
+    flag = 1
+  ) %>%
+  dplyr::select(
+    stay_id, starttime, endtime, ventilation_status, flag
+  ) %>%
+  distinct()
+
+tmp <- tmp %>%
+  inner_join(
+    distinct(dplyr::select(demo, stay_id, subject_id)), 'stay_id', relationship='many-to-many'
+  )
+
+tmp <- tmp %>%
+  inner_join(
+    distinct(dplyr::select(qdemo, subject_id, dttm)), 'subject_id', relationship='many-to-many'
+  )
+
+tmp <- tmp %>%
+  filter(
+    starttime <= dttm & dttm < endtime
+  ) %>%
+  dplyr::select(
+    subject_id, dttm, ventilation_status, flag
+  ) %>%
+  distinct()
+
+tmp <- tmp %>%
+  pivot_wider(id_cols=subject_id:dttm, names_from = ventilation_status, values_from = flag) %>%
+  replace_na(list(SupplementalOxygen = 0, InvasiveVent = 0, NonInvasiveVent = 0, HFNC = 0, Tracheostomy = 0))
+
+tmp <- tmp %>%
+  mutate(
+    invasive = if_else(InvasiveVent == 1, 1, 0),
+    noninvasive = if_else(invasive == 0 & NonInvasiveVent == 1, 1, 0),
+    vtother = if_else(invasive == 0 & noninvasive == 0 & (SupplementalOxygen == 1 | HFNC == 1 | Tracheostomy == 1), 1, 0)
+  ) %>%
+  dplyr::select(
+    subject_id, dttm, invasive, noninvasive, vtother
+  )
+
+qdemo <- qdemo %>%
+  left_join(tmp, c('subject_id','dttm')) %>%
+  replace_na(list(invasive = 0, noninvasive = 0, vtother = 0))
+```
+
+```{r pneumonia_flags}
+qdemo <- qdemo %>%
+  left_join(
+    dplyr::select(demo, subject_id, intime, age:pneumoniadttm), c('subject_id','intime')
+  ) %>%
+  mutate(
+    pneumonia = case_when(
+      !is.na(pneumoniadttm) & pneumoniadttm <= dttm ~ 1,
+      TRUE ~ 0
+    )
+  ) %>%
+  dplyr::select(
+    -pneumoniadttm
+  )
+```
+
+```{r admission_ids}
+ids_mimic <- qdemo %>%
+  dplyr::select(subject_id, intime) %>%
+  distinct() %>%
+  arrange(intime) %>%
+  mutate(
+    admit_id = 1:n()
+  )
+
+if (params$write_data_mode == 'write') {
+  save(ids_mimic, file='./derived/v3/ids_mimic.Rdata')
+}
+
+qdemo <- qdemo %>%
+  left_join(ids_mimic, c('subject_id','intime'))
+
+qdemo <- qdemo %>%
+  mutate(
+    ecmo = 0, 
+    intinf = NA,
+    pulm_edema = NA,
+    pleural_eff = NA
+  )
+
+qdemo <- qdemo %>%
+  mutate(
+    ph = if_else(is.na(ph), NA, if_else(ph < 6.5, NA, if_else(ph > 8, NA, ph))),
+    lactate = if_else(is.na(lactate), NA, if_else(lactate < 0, 0, lactate)),
+    ast = if_else(is.na(ast), NA, if_else(ast < 0, 0, ast)),
+    creatinine = if_else(is.na(creatinine), NA, if_else(creatinine > 50, NA, creatinine)),
+    temp = if_else(is.na(temp), NA, if_else(temp < 26, NA, temp)),
+    glucose = if_else(is.na(glucose), NA, if_else(glucose > 1500, NA, glucose)),
+    anion_gap = if_else(is.na(anion_gap), NA, if_else(anion_gap < -5, -5, anion_gap)),
+    hco3 = if_else(is.na(hco3), NA, if_else(hco3 < 0, NA, hco3)),
+    tidal_vol = if_else(is.na(tidal_vol), NA, if_else(tidal_vol > 1500, NA, tidal_vol)),
+    lactring = if_else(lactring>330, 330, lactring),
+    intinf = if_else(intinf>220, 220, intinf)
+  )
+
+qdemo <- qdemo %>%
+  mutate(
+    last = log(ast + 0.1),
+    lptt = log(ptt),
+    linr = log(inr),
+    llactate = log(lactate + 0.1),
+    lpao2 = log(pao2),
+    lpaco2 = log(paco2),
+    lbun = log(bun),
+    lcreatinine = log(creatinine),
+    lwbc = log(wbc + 1),
+    lglucose = log(glucose),
+    lplatelet = log(platelet),
+    lpotassium = log(potassium)
+  )
+
+qdemo <- qdemo %>%
+  mutate(
+    train=-999
+  )
+```
+
+```{r}
+# new data
+qdemo_new <- qdemo %>%
+  dplyr::select(
+    admit_id, train, dttm, row_id, inicu, peep, tidal_vol, map, hr, fio2, spo2, temp, rr, lglucose, hgb, lpotassium, 
+    sodium, lplatelet, hct, ph, lcreatinine, lwbc, lbun, hco3, lpaco2, lpao2, llactate, linr, anion_gap, lptt, last, gcs, 
+    ecmo, cpn, NOREPINEPHRINE, EPINEPHRINE, DOBUTAMINE, VASOPRESSIN, lactring, intinf, pulm_edema, pleural_eff, pneumonia, 
+    invasive, noninvasive, vtother, age, male, lpre_icu_days, bmi, charlson_score, surg, transp, htn_hist, mi_hist, chf_hist, 
+    pvd_hist, dementia_hist, cva_hist, copd_hist, asthma_hist, ild_hist, chronic_pulmonary_disease_hist, 
+    connective_tissue_disease_hist, dm_hist, pud_hist, cirr_mild_liver_disease_hist, hemiplegia_paraplegia_hist, 
+    mod_sev_kidney_disease_hist, dm_complications_hist, cancer_tumor_hist, leukemia_hist, lymphoma_hist, 
+    mod_sev_liver_disease_hist, metastatic_cancer_hist, aids_hist, hosp_death, prlos_death
+  ) %>%
+  arrange(admit_id, row_id)
+```
+
+```{r}
+# old data
+qdemo_old <- read.csv(file='./derived/v2/qdemo.csv') %>%
+  mutate(
+    dttm = as.POSIXct(dttm)
+  ) %>%
+  arrange(admit_id, row_id)
+
+comp <- comparedf(x=qdemo_old, y=qdemo_new, by = c('admit_id','row_id'), int.as.num = TRUE)
+
+summary(comp)
+```
+
+```{r write_no_lvcf}
+load(file='./qdata_scaler.Rdata')
+
+qdemo_new_scaled <- qdata_scaler_function(qdata=qdemo_new)
+
+if (params$write_data_mode == 'write') {
+  write.csv(qdemo_new, file='./derived/v3/qdemo.csv', row.names=FALSE, na='')
+  write.csv(qdemo_new_scaled, file='./derived/v3/qdemo_scaled.csv', row.names=FALSE, na='')
+}
+```
+
+```{r get_lvcf}
+# looks like fio2 can be higher than .21 off vent, so leave fio2 as-is and set peep and tidal volume
+# values off vent to 0, then store result in temporary file.  these are the values that will end up populating
+# when patients are off vent
+qdemo <- qdemo %>%
+  mutate(
+    peep = if_else(is.na(peep) & invasive == 0 & noninvasive == 0 & vtother == 0, 0, peep),
+    tidal_vol = if_else(is.na(tidal_vol) & invasive == 0 & noninvasive == 0 & vtother == 0, 0, tidal_vol)
+  )
+
+tmp <- qdemo %>% 
+  dplyr::select(
+    admit_id, row_id, fio2, tidal_vol, peep
+  )
+
+# set values off vent to missing so none of them get carried forward
+qdemo <- qdemo %>%
+  mutate(
+    fio2 = if_else(invasive != 1 & noninvasive != 1 & vtother != 1, NA, fio2),
+    tidal_vol = if_else(invasive != 1 & noninvasive != 1 & vtother != 1, NA, tidal_vol),
+    peep = if_else(invasive != 1 & noninvasive != 1 & vtother != 1, NA, peep)
+  )
+
+# last values carried forward
+for (var in c("lglucose", "hgb", "lpotassium", "sodium", "lplatelet", "hct", "ph", "lcreatinine", "lwbc", "lbun",
+              "hco3", "lpaco2", "lpao2", "llactate", "linr", "anion_gap", "lptt", "last", "peep", 
+              "tidal_vol", "map", "hr", "fio2", "spo2", "temp", "rr", "gcs")){
+  qdemo <- lvcf(data=qdemo, hrs=6, value={{var}}) %>% mutate({{var}} := coalesce(.data[[var]], lvcf)) %>% dplyr::select(-lvcf)
+}
+
+# join fio2 (only observed values), tidal volumes and peep (both set to 0 in when non-ventilated)
+qdemo <- qdemo %>%
+  left_join(tmp, c('admit_id','row_id'))
+
+# when ventilated, we use the data with last values carried forward (allow carry forward), otherwise we use the 
+# off-vent values for fio2 (only observed values) and tidal volume and peep (all set to 0) 
+qdemo <- qdemo %>%
+  mutate(
+    fio2 = if_else(invasive == 1 | noninvasive == 1 | vtother == 1, fio2.x, fio2.y), # x has carried forward values, 
+    tidal_vol = if_else(invasive == 1 | noninvasive == 1 | vtother == 1, tidal_vol.x, tidal_vol.y),
+    peep = if_else(invasive == 1 | noninvasive == 1 | vtother == 1, peep.x, peep.y)
+  ) %>%
+  dplyr::select(
+    -fio2.x, -fio2.y, -tidal_vol.x, -tidal_vol.y, -peep.x, -peep.y
+  )
+```
+
+```{r}
+# new data
+qdemo_new <- qdemo %>%
+  dplyr::select(
+    admit_id, train, dttm, row_id, inicu, peep, tidal_vol, map, hr, fio2, spo2, temp, rr, lglucose, hgb, lpotassium, 
+    sodium, lplatelet, hct, ph, lcreatinine, lwbc, lbun, hco3, lpaco2, lpao2, llactate, linr, anion_gap, lptt, last, gcs, 
+    ecmo, cpn, NOREPINEPHRINE, EPINEPHRINE, DOBUTAMINE, VASOPRESSIN, lactring, intinf, pulm_edema, pleural_eff, pneumonia, 
+    invasive, noninvasive, vtother, age, male, lpre_icu_days, bmi, charlson_score, surg, transp, htn_hist, mi_hist, chf_hist, 
+    pvd_hist, dementia_hist, cva_hist, copd_hist, asthma_hist, ild_hist, chronic_pulmonary_disease_hist, 
+    connective_tissue_disease_hist, dm_hist, pud_hist, cirr_mild_liver_disease_hist, hemiplegia_paraplegia_hist, 
+    mod_sev_kidney_disease_hist, dm_complications_hist, cancer_tumor_hist, leukemia_hist, lymphoma_hist, 
+    mod_sev_liver_disease_hist, metastatic_cancer_hist, aids_hist, hosp_death, prlos_death
+  ) %>%
+  arrange(admit_id, row_id)
+```
+
+```{r}
+qdemo_new_scaled <- qdata_scaler_function(qdata=qdemo_new)
+
+if (params$write_data_mode == 'write') {
+  write.csv(qdemo_new_scaled, file='./derived/v3/qdemo_lvcf_scaled.csv', row.names=FALSE, na='')
+}
+```

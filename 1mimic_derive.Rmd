@@ -1,0 +1,824 @@
+---
+title: "Untitled"
+author: "Andrew Hanson"
+date: "2024-05-24"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+# run this program
+# Rscript -e "rmarkdown::render('1mimic_derive.Rmd')"
+
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(tidyr)
+library(dbplyr)
+```
+
+## Admissions
+
+```{r read_admit_data}
+`physionet-data.mimic_icu.icustays` <- read.csv(file='./icu/icustays.csv.gz')
+
+# list of hospitalizations with ICU stays - keep only these patients and admissions
+icustays_lst <- `physionet-data.mimic_icu.icustays` %>%
+  dplyr::select(subject_id, hadm_id) %>%
+  distinct()
+
+`physionet-data.mimic_core.patients` <- read.csv(file='./hosp/patients.csv.gz') %>%
+  inner_join(icustays_lst, 'subject_id')
+
+`physionet-data.mimic_core.admissions` <- read.csv(file='./hosp/admissions.csv.gz') %>%
+  inner_join(icustays_lst, c('subject_id','hadm_id'))
+```
+
+```{r}
+icustays_db <- tbl_memdb(`physionet-data.mimic_icu.icustays`)
+patients_db <- tbl_memdb(`physionet-data.mimic_core.patients`)
+admissions_db <- tbl_memdb(`physionet-data.mimic_core.admissions`)
+
+con <- src_memdb()$con
+```
+
+## Suspicion of infection
+
+```{r read_antibiotic}
+`physionet-data.mimic_hosp.prescriptions` <- read.csv(file='./hosp/prescriptions.csv.gz') %>%
+  inner_join(icustays_lst, c('subject_id','hadm_id'))
+
+prescriptions_db <- tbl_memdb(`physionet-data.mimic_hosp.prescriptions`) 
+```
+
+```{r read_microbiology}
+`physionet-data.mimic_hosp.microbiologyevents` <- read.csv(file='./hosp/microbiologyevents.csv.gz') %>%
+  inner_join(icustays_lst, c('subject_id','hadm_id'))
+
+microbiologyevents_db <- tbl_memdb(`physionet-data.mimic_hosp.microbiologyevents`)
+```
+
+### Antibiotics
+
+```{sql derive_antibiotic, connection=con, code=readLines("antibiotic.sql"), output.var="physionet-data.mimic_derived.antibiotic"}
+
+```
+
+```{r}
+antibiotic_db <- tbl_memdb(`physionet-data.mimic_derived.antibiotic`)
+```
+
+### Suspicion
+
+```{sql derive_suspicion_of_infection, connection=con, code=readLines("suspicion_of_infection.sql"), output.var="physionet-data.mimic_derived.suspicion_of_infection"}
+
+```
+
+```{r}
+suspicion_of_infection_db <- tbl_memdb(`physionet-data.mimic_derived.suspicion_of_infection`)
+
+# list of hospitalizations with suspicion of infection - keep only these hospitalizations
+susp_lst <- `physionet-data.mimic_derived.suspicion_of_infection` %>%
+  filter(suspected_infection == 1) %>% 
+  dplyr::select(subject_id, hadm_id) %>% 
+  distinct()
+```
+
+## Admissions
+
+```{r read_chartevents}
+icustays_lst <- `physionet-data.mimic_icu.icustays` %>%
+  dplyr::select(subject_id, hadm_id) %>%
+  inner_join(susp_lst, c('subject_id','hadm_id')) %>%
+  distinct()
+
+mimic_icu.chartevents <- read.csv(file='./icu/chartevents.csv.gz') %>%
+  inner_join(icustays_lst, c('subject_id','hadm_id'))
+
+# only care about the first 24 hours
+mimic_icu.chartevents <- mimic_icu.chartevents %>%
+  inner_join(distinct(dplyr::select(`physionet-data.mimic_icu.icustays`, stay_id, intime)), 'stay_id') %>%
+  filter(as.POSIXct(intime) - 24*3600 <= as.POSIXct(charttime) &
+            as.POSIXct(charttime) <= as.POSIXct(intime) + 36*3600) %>%
+  dplyr::select(
+    -intime
+  )
+```
+
+```{r}
+chartevents_db <- tbl_memdb(mimic_icu.chartevents)
+```
+
+## Urine output
+
+```{sql derive_weight_durations, connection=con, code=readLines("weight_durations.sql"), output.var="physionet-data.mimic_derived.weight_durations"}
+
+```
+
+```{r}
+weight_durations_db <- tbl_memdb(`physionet-data.mimic_derived.weight_durations`)
+```
+
+```{r read_outputevents}
+`physionet-data.mimic_icu.outputevents` <- read.csv(file='./icu/outputevents.csv.gz') %>%
+  inner_join(icustays_lst, c('subject_id','hadm_id'))
+
+outputevents_db <- tbl_memdb(`physionet-data.mimic_icu.outputevents`)
+```
+
+```{sql derive_urine_output, connection=con, code=readLines("urine_output.sql"), output.var="physionet-data.mimic_derived.urine_output"}
+
+```
+
+```{r}
+urine_output_db <- tbl_memdb(`physionet-data.mimic_derived.urine_output`)
+```
+
+```{sql derive_urine_output_rate, connection=con, code=readLines("urine_output_rate.sql"), output.var="physionet-data.mimic_derived.urine_output_rate"}
+
+```
+
+```{r}
+urine_output_rate_db <- tbl_memdb(`physionet-data.mimic_derived.urine_output_rate`)
+```
+
+# ICU stay times
+
+```{sql derive_icustay_times, connection=con, code=readLines("icustay_times.sql"), output.var="physionet-data.mimic_derived.icustay_times"}
+
+```
+
+```{r}
+icustay_times_db <- tbl_memdb(`physionet-data.mimic_derived.icustay_times`)
+```
+
+## Vasopressors
+
+```{r read_inputevents}
+`physionet-data.mimic_icu.inputevents` <- read.csv(file='./icu/inputevents.csv.gz') %>%
+  inner_join(icustays_lst, c('subject_id','hadm_id'))
+
+inputevents_db <- tbl_memdb(`physionet-data.mimic_icu.inputevents`)
+```
+
+### Dobutamine
+
+```{sql derive_dobutamine, connection=con, code=readLines("dobutamine.sql"), output.var="physionet-data.mimic_derived.dobutamine"}
+
+```
+
+### Dopamine
+
+```{sql derive_dopamine, connection=con, code=readLines("dopamine.sql"), output.var="physionet-data.mimic_derived.dopamine"}
+
+```
+
+### Epinephrine
+
+```{sql derive_epinephrine, connection=con, code=readLines("epinephrine.sql"), output.var="physionet-data.mimic_derived.epinephrine"}
+
+```
+
+### Milrinone
+
+```{sql derive_milrinone, connection=con, code=readLines("milrinone.sql"), output.var="physionet-data.mimic_derived.milrinone"}
+
+```
+
+### Norepinephrine
+
+```{sql derive_norepinephrine, connection=con, code=readLines("norepinephrine.sql"), output.var="physionet-data.mimic_derived.norepinephrine"}
+
+```
+
+### Phenylephrine
+
+```{sql derive_phenylephrine, connection=con, code=readLines("phenylephrine.sql"), output.var="physionet-data.mimic_derived.phenylephrine"}
+
+```
+
+### Vasopressin
+
+```{sql derive_vasopressin, connection=con, code=readLines("vasopressin.sql"), output.var="physionet-data.mimic_derived.vasopressin"}
+
+```
+
+### Vasoactive agents
+
+```{r}
+dobutamine_db <- tbl_memdb(`physionet-data.mimic_derived.dobutamine`)
+dopamine_db <- tbl_memdb(`physionet-data.mimic_derived.dopamine`)
+epinephrine_db <- tbl_memdb(`physionet-data.mimic_derived.epinephrine`)
+milrinone_db <- tbl_memdb(`physionet-data.mimic_derived.milrinone`)
+norepinephrine_db <- tbl_memdb(`physionet-data.mimic_derived.norepinephrine`)
+phenylephrine_db <- tbl_memdb(`physionet-data.mimic_derived.phenylephrine`)
+vasopressin_db <- tbl_memdb(`physionet-data.mimic_derived.vasopressin`)
+```
+
+```{sql derive_vasoactive_agent, connection=con, code=readLines("vasoactive_agent.sql"), output.var="physionet-data.mimic_derived.vasoactive_agent"}
+
+```
+
+## Ventilator setting
+
+```{sql derive_ventilator_setting, connection=con, code=readLines("ventilator_setting.sql"), output.var="physionet-data.mimic_derived.ventilator_setting"}
+
+```
+
+```{r}
+ventilator_setting_db <- tbl_memdb(`physionet-data.mimic_derived.ventilator_setting`)
+```
+
+## Oxygen delivery
+
+```{sql derive_oxygen_delivery, connection=con, code=readLines("oxygen_delivery.sql"), output.var="physionet-data.mimic_derived.oxygen_delivery"}
+
+```
+
+```{r}
+oxygen_delivery_db <- tbl_memdb(`physionet-data.mimic_derived.oxygen_delivery`)
+```
+
+## Ventilation
+
+```{sql derive_ventilation, connection=con, code=readLines("ventilation.sql"), output.var="physionet-data.mimic_derived.ventilation"}
+
+```
+
+```{r}
+ventilation_db <- tbl_memdb(`physionet-data.mimic_derived.ventilation`)
+```
+
+## Height, weight, BMI
+
+```{sql derive_height, connection=con, code=readLines("height.sql"), output.var="physionet-data.mimic_derived.height"}
+
+```
+
+```{sql derive_weight, connection=con, code=readLines("weight.sql"), output.var="physionet-data.mimic_derived.weight"}
+
+```
+
+## Age
+
+```{sql derive_age, connection=con, code=readLines("age.sql"), output.var="physionet-data.mimic_derived.age"}
+
+```
+
+```{r join_age}
+age_db <- tbl_memdb(`physionet-data.mimic_derived.age`)
+```
+
+## Comorbidities
+
+```{r read_diagnoses_icd}
+`physionet-data.mimic_hosp.diagnoses_icd` <- read.csv(file='./hosp/diagnoses_icd.csv.gz') %>%
+  inner_join(icustays_lst, c('subject_id','hadm_id'))
+
+dignoses_db <- tbl_memdb(`physionet-data.mimic_hosp.diagnoses_icd`)
+```
+
+### Charlson
+
+```{sql derive_charlson, connection=con, code=readLines("charlson.sql"), output.var="physionet-data.mimic_derived.charlson"}
+
+```
+
+### Other comorbidities
+
+```{sql derive_comorbidities, connection=con, code=readLines("comorbidities.sql"), output.var="physionet-data.mimic_derived.comorbidities"}
+
+```
+
+## Vital signs
+
+```{sql derive_vitalsign, connection=con, code=readLines("vitalsign.sql"), output.var="physionet-data.mimic_derived.vitalsign"}
+
+```
+
+```{r}
+vitalsign_db <- tbl_memdb(`physionet-data.mimic_derived.vitalsign`)
+```
+
+## Coagulation
+
+```{r read_labevents}
+mimic_hosp.labevents <- read.csv(file='./hosp/labevents.csv.gz') %>%
+  inner_join(icustays_lst, c('subject_id','hadm_id'))
+
+labevents_db <- tbl_memdb(mimic_hosp.labevents)
+```
+
+```{sql derive_blood_differential, connection=con, code=readLines("blood_differential.sql"), output.var="physionet-data.mimic_derived.blood_differential"}
+
+```
+
+```{r}
+blood_differential_db <- tbl_memdb(`physionet-data.mimic_derived.blood_differential`)
+```
+
+```{sql derive_coagulation, connection=con, code=readLines("coagulation.sql"), output.var="physionet-data.mimic_derived.coagulation"}
+
+```
+
+```{r}
+coagulation_db <- tbl_memdb(`physionet-data.mimic_derived.coagulation`)
+```
+
+## Chemistry
+
+```{sql derive_chemistry, connection=con, code=readLines("chemistry.sql"), output.var="physionet-data.mimic_derived.chemistry"}
+
+```
+
+```{r}
+chemistry_db <- tbl_memdb(`physionet-data.mimic_derived.chemistry`)
+```
+
+## Complete blood count
+
+```{sql derive_cbc, connection=con, code=readLines("complete_blood_count.sql"), output.var="physionet-data.mimic_derived.complete_blood_count"}
+
+```
+
+```{r}
+complete_blood_count_db <- tbl_memdb(`physionet-data.mimic_derived.complete_blood_count`)
+```
+
+## Blood gasses
+
+```{sql derive_bg, connection=con, code=readLines("bg.sql"), output.var="physionet-data.mimic_derived.bg"}
+
+```
+
+```{r}
+bg_db <- tbl_memdb(`physionet-data.mimic_derived.bg`)
+```
+
+## Enzyme
+
+```{sql derive_enzyme, connection=con, code=readLines("enzyme.sql"), output.var="physionet-data.mimic_derived.enzyme"}
+
+```
+
+```{r}
+enzyme_db <- tbl_memdb(`physionet-data.mimic_derived.enzyme`)
+```
+
+## Glasgow coma scale
+
+```{sql derive_gcs, connection=con, code=readLines("gcs.sql"), output.var="physionet-data.mimic_derived.gcs"}
+
+```
+
+```{r}
+gcs_db <- tbl_memdb(`physionet-data.mimic_derived.gcs`)
+```
+
+## ICU stay times
+
+```{r dplyr_icustay_hourly}
+`physionet-data.mimic_derived.icustay_hourly` <- `physionet-data.mimic_derived.icustay_times` %>%
+  mutate(
+    start_dttm = as.POSIXct(
+      as.numeric(as.POSIXct(intime_hr)) - as.numeric(format(as.POSIXct(intime_hr), format="%M"))*60 - as.numeric(format(as.POSIXct(intime_hr), format="%S")), origin='1970-01-01'
+    )
+  ) %>%
+  rowwise() %>%
+  mutate(zendtime = list(start_dttm - 24*3600 + seq(0, 48*3600, by = 3600))) %>%
+  unnest(zendtime) %>%
+  ungroup() %>% 
+  mutate(
+    hr = as.numeric(difftime(zendtime, intime_hr, units="hours")),
+    endtime = as.character(zendtime)
+  ) %>%
+  dplyr::select(
+    stay_id, hr, endtime
+  )
+```
+
+```{r}
+icustay_hourly_db <- tbl_memdb(`physionet-data.mimic_derived.icustay_hourly`)
+```
+
+## SOFA
+
+```{sql derive_sofa, connection=con, code=readLines("sofa.sql"), output.var="physionet-data.mimic_derived.sofa"}
+
+```
+
+```{r}
+sofa_db <- tbl_memdb(`physionet-data.mimic_derived.sofa`)
+```
+
+## SEPSIS 3
+
+```{sql derive_sepsis3, connection=con, code=readLines("sepsis3.sql"), output.var="physionet-data.mimic_derived.sepsis3"}
+
+```
+
+```{r}
+sepsis3_db <- tbl_memdb(`physionet-data.mimic_derived.sepsis3`)
+```
+
+## Surgical admission and Transplant
+
+```{r read_drg_data}
+`physionet-data.mimic_hosp.drgcodes` <- read.csv(file='./hosp/drgcodes.csv.gz')
+```
+
+```{r get_surgical_admits}
+# surgical admissions
+surgical_admits <- `physionet-data.mimic_hosp.drgcodes` %>%
+  filter(
+    ('001' <= drg_code & drg_code <='008')
+    | ('010' <= drg_code & drg_code <= '013')
+        | ('019' <= drg_code & drg_code <= '042')
+        | ('113' <= drg_code & drg_code <= '117')
+        | ('135' <= drg_code & drg_code <= '145')
+        | ('163' <= drg_code & drg_code <= '168')
+        | drg_code == '212'
+        | ('215' <= drg_code & drg_code <= '221')
+        | ('228' <= drg_code & drg_code <= '229')
+        | ('231' <= drg_code & drg_code <= '236')
+        | ('239' <= drg_code & drg_code <= '245')
+        | ('250' <= drg_code & drg_code <= '274')
+        | ('275' <= drg_code & drg_code <= '279')
+        | ('319' <= drg_code & drg_code <= '320')
+        | ('321' <= drg_code & drg_code <= '325')
+        | ('326' <= drg_code & drg_code <= '337')
+        | ('344' <= drg_code & drg_code <= '358')
+        | ('397' <= drg_code & drg_code <= '399')
+        | ('405' <= drg_code & drg_code <= '425')
+        | ('453' <= drg_code & drg_code <= '483')
+        | ('485' <= drg_code & drg_code <= '489')
+        | ('492' <= drg_code & drg_code <= '522')
+        | ('570' <= drg_code & drg_code <= '585')
+        | ('614' <= drg_code & drg_code <= '630')
+        | ('650' <= drg_code & drg_code <= '675')
+        | ('707' <= drg_code & drg_code <= '718')
+        | ('734' <= drg_code & drg_code <= '750')
+        | ('769' <= drg_code & drg_code <= '770')
+        | ('799' <= drg_code & drg_code <= '804')
+        | ('817' <= drg_code & drg_code <= '830')
+        | ('853' <= drg_code & drg_code <= '858')
+        | ('901' <= drg_code & drg_code <= '909')
+        | ('927' <= drg_code & drg_code <= '929')
+        | ('939' <= drg_code & drg_code <= '941')
+        | ('955' <= drg_code & drg_code <= '959')
+        | ('969' <= drg_code & drg_code <= '970')
+        | ('981' <= drg_code & drg_code <= '983')
+        | ('987' <= drg_code & drg_code <= '989')
+  ) %>%
+  mutate(
+    surgical = 1
+  ) %>%
+  dplyr::select(
+    subject_id, hadm_id, surgical
+  ) %>%
+  distinct()
+```
+
+```{r get_transplants}
+transplant_admits <- `physionet-data.mimic_hosp.drgcodes` %>%
+  filter(
+    grepl('TRANSPLANT', description)
+  ) %>%
+  mutate(
+    transplant = 1
+  ) %>%
+  dplyr::select(
+    subject_id, hadm_id, transplant
+  ) %>%
+  distinct()
+```
+
+### APS
+
+#### First day urine output
+
+```{sql derive_first_day_urine_output, connection=con, code=readLines("first_day_urine_output.sql"), output.var="physionet-data.mimic_derived.first_day_urine_output"}
+
+```
+
+```{r}
+first_day_urine_output_db <- tbl_memdb(`physionet-data.mimic_derived.first_day_urine_output`)
+```
+
+#### First day labs
+
+```{sql derive_first_day_lab, connection=con, code=readLines("first_day_lab.sql"), output.var="physionet-data.mimic_derived.first_day_lab"}
+
+```
+
+```{r}
+first_day_lab_db <- tbl_memdb(`physionet-data.mimic_derived.first_day_lab`)
+```
+
+#### First day gcs
+
+```{sql derive_first_day_gcs, connection=con, code=readLines("first_day_gcs.sql"), output.var="physionet-data.mimic_derived.first_day_gcs"}
+
+```
+
+```{r}
+first_day_gcs_db <- tbl_memdb(`physionet-data.mimic_derived.first_day_gcs`)
+```
+
+#### First day vitalsign
+
+```{sql derive_first_day_vitalsign, connection=con, code=readLines("first_day_vitalsign.sql"), output.var="physionet-data.mimic_derived.first_day_vitalsign"}
+
+```
+
+```{r}
+first_day_vitalsign_db <- tbl_memdb(`physionet-data.mimic_derived.first_day_vitalsign`)
+```
+
+#### APSIII
+
+```{sql derive_apsiii, connection=con, code=readLines("apsiii.sql"), output.var="physionet-data.mimic_derived.apsiii"}
+
+```
+
+# Create cohort data
+
+```{r create_cohort_data}
+# all hospital admissions
+out_tb <- `physionet-data.mimic_core.admissions` %>%
+  dplyr::select(
+    subject_id, hadm_id
+  ); dim(out_tb)
+
+# with an ICU admission
+out_tb <- out_tb %>%
+  inner_join(dplyr::select(
+    `physionet-data.mimic_icu.icustays`, subject_id, hadm_id, stay_id), c('subject_id', 'hadm_id')
+  ); dim(out_tb)
+
+# with suspicion of infection at any time in the hospitalization
+out_tb <- out_tb %>%
+  inner_join(icustays_lst, c('subject_id','hadm_id')); dim(out_tb)
+
+# meeting sepsis 3 criteria at any time in the icu admission
+tmp <- `physionet-data.mimic_derived.sepsis3` %>%
+  filter(sepsis3 == 1) %>%
+  dplyr::select(subject_id, stay_id, sepsis3) %>%
+  distinct()
+
+out_tb <- out_tb %>%
+  inner_join(tmp, c('subject_id','stay_id')); dim(out_tb)
+```
+
+```{r}
+# join ICU admit related_data
+out_tb <- out_tb %>%
+  inner_join(`physionet-data.mimic_icu.icustays`, c('subject_id','hadm_id','stay_id')); dim(out_tb)
+
+# join hospital related data
+out_tb <- out_tb %>%
+  inner_join(`physionet-data.mimic_core.admissions`, c('subject_id','hadm_id')); dim(out_tb)
+
+# sex
+tmp <- `physionet-data.mimic_core.patients` %>%
+  filter(!is.na(gender)) %>%
+  group_by(subject_id) %>%
+  slice_head(n=1) %>%
+  ungroup() %>%
+  dplyr::select(
+    subject_id, gender
+  )
+
+out_tb <- out_tb %>%
+  left_join(tmp, 'subject_id'); dim(out_tb)
+```
+
+```{r}
+# height
+tmp <- `physionet-data.mimic_derived.height` %>%
+  filter(!is.na(height)) %>%
+  arrange(subject_id, charttime) %>%
+  group_by(subject_id) %>%
+  slice_head(n=1) %>%
+  ungroup() %>%
+  dplyr::select(
+    subject_id, height
+  )
+
+out_tb <- out_tb %>%
+  left_join(tmp, 'subject_id'); dim(out_tb)
+```
+
+```{r}
+# weight
+tmp <- `physionet-data.mimic_derived.weight` %>%
+  filter(!is.na(weight)) %>%
+  arrange(subject_id, stay_id, charttime) %>%
+  group_by(subject_id, stay_id) %>%
+  slice_head(n=1) %>%
+  ungroup() %>%
+  dplyr::select(
+    stay_id, subject_id, weight
+  )
+
+out_tb <- out_tb %>%
+  left_join(tmp, c('stay_id','subject_id')); dim(out_tb)
+```
+
+```{r}
+# age
+tmp <- `physionet-data.mimic_derived.age` %>%
+  filter(!is.na(age)) %>%
+  arrange(hadm_id, subject_id, age) %>%
+  group_by(hadm_id, subject_id) %>%
+  slice_tail(n=1) %>%
+  ungroup() %>%
+  dplyr::select(
+    hadm_id, subject_id, age
+  )
+
+out_tb <- out_tb %>%
+  left_join(tmp, c('hadm_id','subject_id')); dim(out_tb)
+```
+
+```{r}
+# Charlson
+tmp <- `physionet-data.mimic_derived.charlson` %>%
+  group_by(hadm_id, subject_id) %>%
+  slice_head(n=1) %>%
+  ungroup()
+
+out_tb <- out_tb %>%
+  left_join(tmp, c('hadm_id','subject_id')); dim(out_tb)
+```
+
+```{r}
+# Comorbidities
+tmp <- `physionet-data.mimic_derived.comorbidities` %>%
+  group_by(hadm_id, subject_id) %>%
+  slice_head(n=1) %>%
+  ungroup()
+
+out_tb <- out_tb %>%
+  left_join(tmp, c('hadm_id','subject_id')); dim(out_tb)
+```
+
+```{r}
+# surgical
+out_tb <- out_tb %>%
+  left_join(surgical_admits, c('subject_id','hadm_id')) %>%
+  replace_na(list(surgical = 0)); dim(out_tb)
+
+# transplant
+out_tb <- out_tb %>%
+  left_join(transplant_admits, c('subject_id','hadm_id')) %>%
+  replace_na(list(transplant = 0)); dim(out_tb)
+
+# other calculations
+out_tb <- out_tb %>%
+  mutate(
+    preiculos = round(as.numeric(difftime(intime, admittime, units='days')), digits=3),
+    iculos = round(as.numeric(difftime(outtime, intime, units='days')), digits=3), 
+    bmi = round(weight / (height/100)^2, digits=1)
+  )
+```
+
+```{r longitudinal_vitals}
+# one row for each time any vital sign was measured
+vitals <- dplyr::select(`physionet-data.mimic_derived.vitalsign`, subject_id, charttime) %>%
+  bind_rows(dplyr::select(`physionet-data.mimic_derived.bg`, subject_id, charttime)) %>%
+  bind_rows(dplyr::select(`physionet-data.mimic_derived.ventilator_setting`, subject_id, charttime)) %>%
+  distinct(); dim(vitals)
+
+vitals <- vitals %>%
+  left_join(dplyr::select(
+    `physionet-data.mimic_derived.vitalsign`, subject_id, charttime, mbp, mbp_ni, heart_rate, spo2, temperature, resp_rate), 
+    c('subject_id','charttime')
+  ); dim(vitals)
+
+vitals <- vitals %>%
+  left_join(dplyr::select(
+    `physionet-data.mimic_derived.bg`, subject_id, charttime, fio2),
+    c('subject_id','charttime')
+  ); dim(vitals)
+
+vitals <- vitals %>%
+  left_join(dplyr::select(
+    `physionet-data.mimic_derived.ventilator_setting`, subject_id, charttime, peep, tidal_volume_set, tidal_volume_observed, tidal_volume_spontaneous, fio2),
+    c('subject_id','charttime')
+  ); dim(vitals)
+
+# missing vtmode, oxdev
+vitals <- vitals %>%
+  mutate(
+    tidal_vol = coalesce(tidal_volume_set, tidal_volume_observed, tidal_volume_spontaneous),
+    map = coalesce(mbp, mbp_ni), 
+    fio2 = coalesce(fio2.x, fio2.y)
+  ) %>%
+  rename(
+    hr = heart_rate, temp = temperature, rr = resp_rate
+  ) %>%
+  dplyr::select(
+    subject_id, charttime, peep, tidal_vol, map, hr, fio2, spo2, temp, rr
+  ); dim(vitals)
+```
+
+```{r longitudinal_labs}
+# labs
+labs <- dplyr::select(`physionet-data.mimic_derived.complete_blood_count`, subject_id, hadm_id, charttime) %>%
+  bind_rows(dplyr::select(`physionet-data.mimic_derived.chemistry`, subject_id, hadm_id, charttime)) %>%
+  bind_rows(dplyr::select(`physionet-data.mimic_derived.coagulation`, subject_id, hadm_id, charttime)) %>%
+  bind_rows(dplyr::select(`physionet-data.mimic_derived.bg`, subject_id, hadm_id, charttime)) %>%
+  bind_rows(dplyr::select(`physionet-data.mimic_derived.enzyme`, subject_id, hadm_id, charttime)) %>%
+  distinct(); dim(labs)
+
+labs <- labs %>%
+  left_join(distinct(dplyr::select(
+    `physionet-data.mimic_derived.complete_blood_count`, subject_id, hadm_id, charttime, hemoglobin, platelet, hematocrit, wbc)),
+    c('subject_id','hadm_id','charttime')
+  ); dim(labs)
+
+labs <- labs %>%
+  left_join(distinct(dplyr::select(
+    `physionet-data.mimic_derived.chemistry`, subject_id, hadm_id, charttime, glucose, potassium, sodium, creatinine, bun, bicarbonate, aniongap)),
+    c('subject_id','hadm_id','charttime')
+  ); dim(labs)
+
+labs <- labs %>%
+  left_join(distinct(dplyr::select(
+    `physionet-data.mimic_derived.coagulation`, subject_id, hadm_id, charttime, inr, ptt)),
+    c('subject_id','hadm_id','charttime')
+  ); dim(labs)
+
+labs <- labs %>%
+  left_join(distinct(dplyr::select(
+    `physionet-data.mimic_derived.bg`, subject_id, hadm_id, charttime, ph, pco2, po2, lactate)),
+    c('subject_id','hadm_id','charttime')
+  ); dim(labs)
+
+labs <- labs %>%
+  left_join(distinct(dplyr::select(
+    `physionet-data.mimic_derived.enzyme`, subject_id, hadm_id, charttime, ast)),
+    c('subject_id','hadm_id','charttime')
+  ); dim(labs)
+
+labs <- labs %>%
+  rename(
+    hgb = hemoglobin, hct = hematocrit,  hco3 = bicarbonate, paco2 = pco2, pao2 = po2, 
+    anion_gap = aniongap
+  ) %>%
+  dplyr::select(
+    subject_id, hadm_id, charttime, glucose, hgb, potassium, sodium, platelet, hct, ph, creatinine,
+    wbc, bun, hco3, paco2, pao2, lactate, inr, anion_gap, ptt, ast
+  ); dim(labs)
+```
+
+```{r longitudinal_vasopressors}
+out_vasos <- mutate(`physionet-data.mimic_derived.dobutamine`, med = 'dobutamine') %>%
+  bind_rows(mutate(`physionet-data.mimic_derived.norepinephrine`, med = 'norepinephrine')) %>%
+  bind_rows(mutate(`physionet-data.mimic_derived.epinephrine`, med = 'epinephrine')) %>%
+  bind_rows(mutate(`physionet-data.mimic_derived.vasopressin`, med = 'vasopressin'))
+```
+
+```{r write_cohort_lab_vitals_data}
+# demo data
+write.csv(out_tb, file='./derived/v3/demo.csv', row.names=FALSE, na='')
+
+# labs data
+write.csv(labs, file='./derived/v3/labs.csv', row.names=FALSE, na='')
+
+# vitals data
+write.csv(vitals, file='./derived/v3/vitals.csv', row.names=FALSE, na='')
+
+# vasoactives data
+write.csv(out_vasos, file='./derived/v3/vasoactives.csv', row.names=FALSE, na='')
+
+# ventilation
+write.csv(`physionet-data.mimic_derived.ventilation`, file='./derived/v3/ventilation.csv', row.names=FALSE, na='')
+
+# gcs
+write.csv(`physionet-data.mimic_derived.gcs`, file='./derived/v3/gcs.csv', row.names=FALSE, na='')
+
+# suspicion of infection
+write.csv(`physionet-data.mimic_derived.suspicion_of_infection`, file='./derived/v3/suspicion_of_infection.csv', row.names=FALSE, na='')
+
+# urine output rate
+write.csv(`physionet-data.mimic_derived.urine_output_rate`, file='./derived/v3/urine_output_rate.csv', row.names=FALSE, na='')
+
+# urine output
+write.csv(`physionet-data.mimic_derived.urine_output`, file='./derived/v3/urine_output.csv', row.names=FALSE, na='')
+
+# icu stay times
+write.csv(`physionet-data.mimic_derived.icustay_times`, file='./derived/v3/icustay_times.csv', row.names=FALSE, na='')
+
+# aps
+write.csv(`physionet-data.mimic_derived.apsiii`, file='./derived/v3/apsiii.csv', row.names=FALSE, na='')
+
+# sofa
+write.csv(`physionet-data.mimic_derived.sofa`, file='./derived/v3/sofa.csv', row.names=FALSE, na='')
+
+# sepsis
+write.csv(`physionet-data.mimic_derived.sofa`, file='./derived/v3/sepsis', row.names=FALSE, na='')
+```
+
+
+
