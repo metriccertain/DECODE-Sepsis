@@ -100,6 +100,23 @@ lvcf <- function(data, hrs, value) {
 }
 ```
 
+```{r define_scaler_function}
+scaler_data <- read.csv(file='./qmain_train_scaler_data.csv')
+
+qdata_scaler_function <- function(qdata, min_data=scaler_data[,1], max_data=scaler_data[3,], mean_data=scaler_data[2,]) {
+  out <- qdata
+  
+  for(var in names(min_data)) {
+    if(var %in% names(out)) {
+      out[[var]][is.na(out[[var]])] <- mean_data[[var]]
+      out[[var]] <- (out[[var]] - min_data[[var]]) / (max_data[[var]] - min_data[[var]])
+    }
+  }
+  
+  return(out)
+}
+```
+
 ```{r demo_data}
 demo <- read.csv(file='./derived/v3/demo.csv'); dim(demo)
 
@@ -826,8 +843,6 @@ summary(comp)
 ```
 
 ```{r write_no_lvcf}
-load(file='./qdata_scaler.Rdata')
-
 qdemo_new_scaled <- qdata_scaler_function(qdata=qdemo_new)
 
 if (params$write_data_mode == 'write') {
