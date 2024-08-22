@@ -136,7 +136,7 @@ X_mimic = np.array(X_mimic)
 X_mimic = np.reshape(X_mimic, (y_mimic.shape[0], predict_rows, X_mimic.shape[1]))
 
 # load the model
-model = tf.keras.models.load_model('../results/nn_model/NN_tracebacks')
+model = tf.keras.models.load_model('../data/fitted_models/0053/nn_model/NN_tracebacks')
 
 model.summary()
 
