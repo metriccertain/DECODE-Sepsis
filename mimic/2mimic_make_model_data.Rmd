@@ -101,9 +101,9 @@ lvcf <- function(data, hrs, value) {
 ```
 
 ```{r define_scaler_function}
-scaler_data <- read.csv(file='./qmain_train_scaler_data.csv')
+scaler_data <- read.csv(file='../data/scaler_data/0053/qmain_train_scaler_data.csv')
 
-qdata_scaler_function <- function(qdata, min_data=scaler_data[,1], max_data=scaler_data[3,], mean_data=scaler_data[2,]) {
+qdata_scaler_function <- function(qdata, min_data=scaler_data[1,], max_data=scaler_data[3,], mean_data=scaler_data[2,]) {
   out <- qdata
   
   for(var in names(min_data)) {
@@ -830,24 +830,24 @@ qdemo_new <- qdemo %>%
 ```
 
 ```{r}
+qdemo_new_scaled <- qdata_scaler_function(qdata=qdemo_new)
+
 # old data
-qdemo_old <- read.csv(file='./derived/v2/qdemo.csv') %>%
+qdemo_old_scaled <- read.csv(file='./derived/v3/qdemo_scaled.csv') %>%
   mutate(
     dttm = as.POSIXct(dttm)
   ) %>%
   arrange(admit_id, row_id)
 
-comp <- comparedf(x=qdemo_old, y=qdemo_new, by = c('admit_id','row_id'), int.as.num = TRUE)
+comp <- comparedf(x=qdemo_old_scaled, y=qdemo_new_scaled, by = c('admit_id','row_id'), int.as.num = TRUE)
 
 summary(comp)
 ```
 
 ```{r write_no_lvcf}
-qdemo_new_scaled <- qdata_scaler_function(qdata=qdemo_new)
-
 if (params$write_data_mode == 'write') {
-  write.csv(qdemo_new, file='./derived/v3/qdemo.csv', row.names=FALSE, na='')
-  write.csv(qdemo_new_scaled, file='./derived/v3/qdemo_scaled.csv', row.names=FALSE, na='')
+  write.csv(qdemo_new, file='./derived/v4/qdemo.csv', row.names=FALSE, na='')
+  write.csv(qdemo_new_scaled, file='./derived/v4/qdemo_scaled.csv', row.names=FALSE, na='')
 }
 ```
 
@@ -917,7 +917,18 @@ qdemo_new <- qdemo %>%
 ```{r}
 qdemo_new_scaled <- qdata_scaler_function(qdata=qdemo_new)
 
+# old data
+qdemo_old_scaled <- read.csv(file='./derived/v3/qdemo_lvcf_scaled.csv') %>%
+  mutate(
+    dttm = as.POSIXct(dttm)
+  ) %>%
+  arrange(admit_id, row_id)
+
+comp <- comparedf(x=qdemo_old_scaled, y=qdemo_new_scaled, by = c('admit_id','row_id'), int.as.num = TRUE)
+
+summary(comp)
+
 if (params$write_data_mode == 'write') {
-  write.csv(qdemo_new_scaled, file='./derived/v3/qdemo_lvcf_scaled.csv', row.names=FALSE, na='')
+  write.csv(qdemo_new_scaled, file='./derived/v4/qdemo_lvcf_scaled.csv', row.names=FALSE, na='')
 }
 ```
