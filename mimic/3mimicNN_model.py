@@ -147,6 +147,6 @@ out_mimic = ids_mimic
 
 out_mimic["yhat_nn"] = model.predict([X1_mimic])
 
-out_mimic.to_csv('../results/ztest_mimicNN_predicted.csv', index=False)
+out_mimic.to_csv('./results/v3/ztest_mimicNN_predicted.csv', index=False)
 
 out_mimic.shape
