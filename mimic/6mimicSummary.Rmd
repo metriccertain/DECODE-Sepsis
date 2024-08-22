@@ -16,7 +16,7 @@ library(pROC)
 ```
 
 ```{r}
-files <- system("find ./results/v3 | grep mimic | grep _predicted.csv | grep v3", intern=TRUE)
+files <- system("find ./results/v3 | grep _predicted.csv", intern=TRUE)
 files <- files[order(files)]
 
 pred_names <- unlist(lapply(strsplit(files, '/', fixed=TRUE, perl=FALSE), FUN=function(x) x[[4]]))
