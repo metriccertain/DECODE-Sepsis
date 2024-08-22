@@ -136,10 +136,10 @@ X_mimic = np.array(X_mimic)
 X_mimic = np.reshape(X_mimic, (y_mimic.shape[0], predict_rows, X_mimic.shape[1]))
 
 # load the models
-model_merged_cnnsmall = tf.keras.models.load_model('../results/merged_cnnsmall_model/merged_cnnsmall_tracebacks')
-model_merged_cnntiny = tf.keras.models.load_model('../results/merged_cnntiny_model/merged_cnntiny_tracebacks')
-model_merged_lstmsmall = tf.keras.models.load_model('../results/merged_lstmsmall_model/merged_lstmsmall_tracebacks')
-model_merged_lstmtiny = tf.keras.models.load_model('../results/merged_lstmtiny_model/merged_lstmtiny_tracebacks')
+model_merged_cnnsmall = tf.keras.models.load_model('../data/fitted_models/0053/merged_cnnsmall_model/merged_cnnsmall_tracebacks')
+model_merged_cnntiny = tf.keras.models.load_model('../data/fitted_models/0053/merged_cnntiny_model/merged_cnntiny_tracebacks')
+model_merged_lstmsmall = tf.keras.models.load_model('../data/fitted_models/0053/merged_lstmsmall_model/merged_lstmsmall_tracebacks')
+model_merged_lstmtiny = tf.keras.models.load_model('../data/fitted_models/0053/merged_lstmtiny_model/merged_lstmtiny_tracebacks')
 
 ############################################################
 # test mimic data
