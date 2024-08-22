@@ -150,6 +150,6 @@ out_mimic["yhat_nolvcf_cnntiny"] = model_nolvcf_cnntiny.predict([X_mimic, X1_mim
 out_mimic["yhat_nolvcf_lstmsmall"] = model_nolvcf_lstmsmall.predict([X_mimic, X1_mimic])
 out_mimic["yhat_nolvcf_lstmtiny"] = model_nolvcf_lstmtiny.predict([X_mimic, X1_mimic])
 
-out_mimic.to_csv('../results/ztest_mimicRNN_nolvcf_predicted.csv', index=False)
+out_mimic.to_csv('./results/v3/ztest_mimicRNN_nolvcf_predicted.csv', index=False)
 
 out_mimic.shape
