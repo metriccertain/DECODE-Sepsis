@@ -135,10 +135,10 @@ X_mimic = np.array(X_mimic)
 X_mimic = np.reshape(X_mimic, (y_mimic.shape[0], predict_rows, X_mimic.shape[1]))
 
 # load the models
-model_nolvcf_cnnsmall = tf.keras.models.load_model('../results/nolvcf_cnnsmall_model/nolvcf_cnnsmall_tracebacks')
-model_nolvcf_cnntiny = tf.keras.models.load_model('../results/nolvcf_cnntiny_model/nolvcf_cnntiny_tracebacks')
-model_nolvcf_lstmsmall = tf.keras.models.load_model('../results/nolvcf_lstmsmall_model/nolvcf_lstmsmall_tracebacks')
-model_nolvcf_lstmtiny = tf.keras.models.load_model('../results/nolvcf_lstmtiny_model/nolvcf_lstmtiny_tracebacks')
+model_nolvcf_cnnsmall = tf.keras.models.load_model('../data/fitted_models/0053/nolvcf_cnnsmall_model/nolvcf_cnnsmall_tracebacks')
+model_nolvcf_cnntiny = tf.keras.models.load_model('../data/fitted_models/0053/nolvcf_cnntiny_model/nolvcf_cnntiny_tracebacks')
+model_nolvcf_lstmsmall = tf.keras.models.load_model('../data/fitted_models/0053/nolvcf_lstmsmall_model/nolvcf_lstmsmall_tracebacks')
+model_nolvcf_lstmtiny = tf.keras.models.load_model('../data/fitted_models/0053/nolvcf_lstmtiny_model/nolvcf_lstmtiny_tracebacks')
 
 ############################################################
 # test mimic data
