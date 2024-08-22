@@ -151,6 +151,6 @@ out_mimic["yhat_merged_cnntiny"] = model_merged_cnntiny.predict([X_mimic, X1_mim
 out_mimic["yhat_merged_lstmsmall"] = model_merged_lstmsmall.predict([X_mimic, X1_mimic])
 out_mimic["yhat_merged_lstmtiny"] = model_merged_lstmtiny.predict([X_mimic, X1_mimic])
 
-out_mimic.to_csv('../results/ztest_mimicRNN_merged_predicted.csv', index=False)
+out_mimic.to_csv('./results/v3/ztest_mimicRNN_merged_predicted.csv', index=False)
 
 out_mimic.shape
