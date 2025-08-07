@@ -1,0 +1,426 @@
+---
+title: "Untitled"
+author: "Andrew Hanson"
+date: "2024-02-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+# run in batch
+# Rscript -e "rmarkdown::render('zmimicSummary.Rmd')"
+
+knitr::opts_chunk$set(echo = FALSE)
+
+library(tidyverse)
+library(pROC)
+
+# given a <data> set of <response> and <predictor>, output calibration data, calibration deciles, and a calibration plot
+get_cal_data <- function(data, response, predictor) {
+  my_quantiles <- seq(0,1,0.1)
+  
+  cal_data <- data %>%
+    rename(
+      pred = !!predictor, event = !!response
+    ) %>%
+    dplyr::select(
+      pred, event
+    ) %>%
+    mutate(
+      score_decile = cut(pred, breaks=quantile(pred, my_quantiles) - c(1E-4, rep(0, length(my_quantiles)-1))),
+      score_decile = floor(10*pred)
+    )
+  
+  cal_data_deciles <- data.frame(score_decile = 0:9)
+  
+  tmp <- cal_data %>%
+    group_by(score_decile) %>%
+    mutate(
+      n_decile = n(),
+      sum_event = sum(event),
+      mean_pred = mean(pred)
+    ) %>%
+    slice_head(n=1) %>%
+    ungroup()
+  
+  cal_data_deciles <- cal_data_deciles %>%
+    left_join(tmp, join_by(score_decile))
+  
+  tmp <- DescTools::BinomCI(x=cal_data_deciles$sum_event, n=cal_data_deciles$n_decile)
+  
+  cal_data_deciles <- cal_data_deciles %>%
+    bind_cols(tmp)
+  
+  out <- list(cal_data = cal_data, cal_data_deciles = cal_data_deciles)
+  
+  return(out)
+}
+```
+
+```{r}
+pred_nn <- read.csv(file='./results/v4/ztest_mimicNN_predicted.csv') %>%
+  dplyr::select(
+    subject_id, hadm_id, stay_id, admit_id, session_id, starts_with('yhat')
+  )
+
+pred_rnn <- read.csv(file='./results/v4/ztest_mimicRNN_merged_predicted.csv') %>%
+  dplyr::select(
+    subject_id, hadm_id, stay_id, admit_id, session_id, starts_with('yhat')
+  )
+
+preds <- pred_nn %>%
+  left_join(pred_rnn, join_by(subject_id, hadm_id, stay_id, admit_id, session_id))
+
+preds <- preds %>%
+  rename_with(~gsub('yhat_', '', .x)) %>%
+  dplyr::select(
+    subject_id, hadm_id, stay_id, session_id, merged_cnnsmall, merged_cnntiny, 
+    merged_lstmsmall, merged_lstmtiny, nn
+  )
+
+preds <- preds %>%
+  mutate(
+    merged_ensemble = (merged_cnnsmall + merged_cnntiny + merged_lstmsmall + merged_lstmtiny + nn)/5
+  ); dim(preds)
+```
+
+```{r load_mimic_demo_data}
+# MIMIC data
+mimic_main <- read.csv('./derived/v4/demo.csv') %>%
+  dplyr::select(
+    -iculos, -los
+  )
+
+mimic_main <- mimic_main %>%
+  mutate(
+    intime = as.POSIXct(intime), 
+    outtime = as.POSIXct(outtime),
+    admittime = as.POSIXct(admittime),
+    dischtime = as.POSIXct(dischtime)
+  ); dim(mimic_main)
+```
+
+```{r mimic_start_stop_times}
+# get the start date time
+icustay_times <- read.csv(file='./derived/v4/icustay_times.csv') %>%
+  filter(
+    intime_hr != ''
+  ) %>%
+  mutate(
+    intime_hr = as.POSIXct(intime_hr),
+    outtime_hr = as.POSIXct(outtime_hr),
+  ); dim(icustay_times)
+
+mimic_main <- mimic_main %>%
+  inner_join(icustay_times, join_by(subject_id, hadm_id, stay_id)); dim(mimic_main)
+
+# change intime, but not outtime b/c _hr vars are based on vitals and we only read in 36 hours
+mimic_main <- mimic_main %>%
+  mutate(
+    intime = intime_hr,
+    icu_days = round(as.numeric(difftime(outtime, intime, units='days')), digits=3),
+  ) %>%
+  dplyr::select(
+    -intime_hr, -outtime_hr
+  )
+
+mimic_main <- mimic_main %>%
+  distinct(); dim(mimic_main)
+
+mimic_main <- mimic_main %>%
+  filter(
+    icu_days > 1.85/24
+  ); dim(mimic_main)
+
+rm(icustay_times)
+```
+
+```{r mimic_suspicion_of_infection}
+suspicion_of_infection <- read.csv(file='./derived/v4/suspicion_of_infection.csv')
+
+suspicion_of_infection <- suspicion_of_infection %>%                           
+  filter(
+    !is.na(stay_id) & suspected_infection == 1 & suspected_infection_time != ''
+  ) %>%
+  mutate(
+    suspected_infection_time = as.POSIXct(suspected_infection_time),
+    antibiotic_time = as.POSIXct(antibiotic_time)
+  )
+
+suspicion_of_infection <- suspicion_of_infection %>%
+  arrange(subject_id, hadm_id, stay_id, suspected_infection_time, antibiotic_time) %>%
+  group_by(subject_id, hadm_id, stay_id) %>%
+  slice_head(n=1) %>%
+  ungroup() %>%
+  dplyr::select(
+    subject_id, hadm_id, stay_id, suspected_infection_time, antibiotic_time
+  )
+
+mimic_main <- mimic_main %>%
+  left_join(suspicion_of_infection, join_by(subject_id, hadm_id, stay_id))
+
+mimic_main <- mimic_main %>%
+  mutate(
+    susp = if_else(admittime-24*3600 <= suspected_infection_time & suspected_infection_time <= intime + 24*3600 &
+                     suspected_infection_time <= outtime, 1, 0)
+    ); dim(mimic_main)
+
+rm(suspicion_of_infection)
+```
+
+```{r mimic_sofa}
+# hourly sofa over the first day
+sofa_mimic <- read.csv(file='./derived/v4/sofa.csv')
+
+# SOFA >= 2 within 24 hours
+sofa_mimic <- sofa_mimic %>%
+  filter(
+    sofa_24hours >= 2 & hr <= 24
+  )
+
+sofa_mimic <- sofa_mimic %>%
+  arrange(stay_id, sofa_24hours) %>%
+  group_by(stay_id) %>%
+  slice_tail(n=1) %>%
+  ungroup() %>%
+  dplyr::select(
+    stay_id, sofa_24hours
+  )
+
+mimic_main <- mimic_main %>%
+  inner_join(sofa_mimic, join_by(stay_id)); dim(mimic_main)
+
+rm(sofa_mimic)
+```
+
+```{r lactate}
+# for each subject, every time they had a lactate greater than 2
+lactate_mimic <- read.csv(file='./derived/v4/labs.csv') %>%
+  mutate(
+    charttime = as.POSIXct(charttime)
+  ) %>%
+  filter(!is.na(lactate) & lactate >= 2) %>%
+  dplyr::select(
+    subject_id, charttime
+  )
+
+mimic_main <- mimic_main %>%
+  left_join(lactate_mimic, join_by(subject_id), relationship = 'many-to-many')
+
+# flag for lactate > 2 within 24 hours of admission
+mimic_main <- mimic_main %>%
+  mutate(
+    lactate2 = if_else(!is.na(charttime) & intime-24*3600 <= charttime & charttime <= intime+24*3600, 1, 0)
+  ) %>%
+  dplyr::select(
+    -charttime
+  )
+
+mimic_main <- mimic_main %>%
+  arrange(stay_id, lactate2) %>%
+  group_by(stay_id) %>%
+  slice_tail(n=1) %>%
+  ungroup(); dim(mimic_main)
+
+rm(lactate_mimic)
+```
+
+```{r mimic_vasos}
+vasos_mimic <- read.csv(file='./derived/v4/vasoactives.csv') %>%
+  mutate(
+    starttime = as.POSIXct(starttime),
+    endtime = as.POSIXct(endtime)
+  ) %>%
+  dplyr::select(
+    stay_id, starttime, endtime
+  )
+
+mimic_main <- mimic_main %>%
+  left_join(vasos_mimic, join_by(stay_id))
+
+mimic_main <- mimic_main %>%
+  mutate(
+    vasos = if_else(!is.na(starttime) & starttime <= intime+24*3600 & endtime > intime, 1, 0)
+  ) %>%
+  dplyr::select(
+    -starttime, -endtime
+  ) %>%
+  arrange(stay_id, vasos) %>%
+  group_by(stay_id) %>%
+  slice_tail(n=1) %>%
+  ungroup(); dim(mimic_main)
+
+rm(vasos_mimic)
+```
+
+```{r}
+mimic_main <- mimic_main %>%
+  filter(susp == 1); dim(mimic_main)
+```
+
+```{r mimic_aps}
+mimic_aps <- read.csv(file='./derived/v4/apsiii.csv')
+
+mimic_aps <- mimic_aps %>%
+  rename(
+    aps_24 = apsiii, aps_24prob = apsiii_prob
+  ) %>%
+  dplyr::select(
+    subject_id, hadm_id, stay_id, aps_24, aps_24prob
+  ) %>%
+  distinct()
+
+mimic_main <- mimic_main %>%
+  left_join(mimic_aps, join_by(subject_id, hadm_id, stay_id))
+
+rm(mimic_aps)
+```
+
+```{r mimic_saps}
+mimic_saps <- read.csv(file='./derived/v4/sapsii.csv')
+
+mimic_saps <- mimic_saps %>%
+  dplyr::select(
+    subject_id, hadm_id, stay_id, sapsii, sapsii_prob
+  ) %>%
+  distinct(); dim(mimic_saps)
+
+mimic_main <- mimic_main %>%
+  left_join(mimic_saps, join_by(subject_id, hadm_id, stay_id)); dim(mimic_main)
+
+rm(mimic_saps)
+```
+
+```{r mimic_outcome_definition}
+mimic_main <- mimic_main %>%
+  mutate(
+    hosp_death = hospital_expire_flag,
+    hosp_spdttm = dischtime,
+    hosp_days = round(as.numeric(difftime(hosp_spdttm, admittime, units='days')), digits=3),
+    prlos_death = case_when(
+      hosp_death == 1 ~ 1,
+      as.numeric(difftime(outtime, intime, units='days')) > 14 ~ 1,
+      TRUE ~ 0
+    )
+  )
+```
+
+```{r load_mimic_predicteds}
+tmp <- mimic_main %>%
+  dplyr::select(
+    subject_id, hadm_id, stay_id, aps_24, aps_24prob, sofa_24hours, sapsii_prob, prlos_death
+  )
+
+mimic_phats <- preds %>%
+  inner_join(tmp, join_by(subject_id, hadm_id, stay_id)); dim(mimic_phats)
+
+mimic_phats <- mimic_phats %>%
+  mutate(
+    aps_24 = if_else(is.na(aps_24), mean(aps_24, na.rm=TRUE), aps_24),
+    aps_24prob = if_else(is.na(aps_24prob), mean(aps_24prob, na.rm=TRUE), aps_24prob),
+    aps_24prob = round(aps_24prob, digits=3)
+  )
+```
+
+```{r, message = FALSE}
+my_probs <- c('merged_ensemble', 'aps_24prob', 'sapsii_prob')
+my_preds <- c(my_probs, 'sofa_24hours')
+
+mimic_phats_list <- split(mimic_phats, factor(mimic_phats$session_id))
+
+# roc_lists are lists of predictors, each being a list of session_ids with associated roc objects
+mimic_roc_list <- split(my_preds, factor(my_preds))[my_preds]
+
+for (pred in my_preds) {
+  mimic_roc_list[[pred]] <- lapply(mimic_phats_list, FUN = function(x) roc(response=x[['prlos_death']], predictor=round(x[[pred]], digits=3)))
+}
+
+# cal list is a list of predictors, each being a list of session_ids with associated calibration objects (lists)
+mimic_cal_list <- split(my_probs, factor(my_probs))[my_probs]
+
+for (prob in my_probs) {
+  mimic_cal_list[[prob]] <- lapply(mimic_phats_list, FUN = function(x) get_cal_data(data=x, response='prlos_death', predictor=prob))
+}
+
+# get ROC plot data for each dataset, every model, and every session_id
+mimic_roc_data <- mimic_roc_list
+
+for (mod in names(mimic_roc_list)) {
+  for (id in names(mimic_roc_list[[mod]])) {
+    mimic_roc_data[[mod]][[id]] <- coords(mimic_roc_list[[mod]][[id]], ret = c('threshold','recall','fpr','precision')) %>%
+      mutate(
+        model = mod, session_id = id, hours = as.numeric(session_id) / 4
+      )
+  }
+  mimic_roc_data[[mod]] <- do.call(rbind, mimic_roc_data[[mod]])
+}
+
+# get calibration plot data for each dataset, every model, and every session_id
+mimic_cal_data <- mimic_cal_list
+
+for (mod in names(mimic_cal_list)) {
+  for (id in names(mimic_cal_list[[mod]])) {
+    mimic_cal_data[[mod]][[id]] <- mimic_cal_list[[mod]][[id]]$cal_data_deciles %>%
+      mutate(
+        model = mod, session_id = id, hours = as.numeric(session_id) / 4
+      )
+  }
+  mimic_cal_data[[mod]] <- do.call(rbind, mimic_cal_data[[mod]])
+}
+
+# get AUC for each dataset, every model, and every session_id
+mimic_auc_data <- lapply(mimic_roc_list, FUN = function(x) do.call(rbind, lapply(x, FUN = function(y) data.frame(AUC = as.numeric(auc(y))))))
+```
+
+## AU ROC (MIMIC IV)
+
+### Ensemble model at 6, 12, 18, and 24 hours
+
+#### 6
+
+```{r}
+auc(mimic_roc_list$merged_ensemble$`24`)
+ci.auc(mimic_roc_list$merged_ensemble$`24`)
+```
+
+#### 12
+
+```{r}
+auc(mimic_roc_list$merged_ensemble$`48`)
+ci.auc(mimic_roc_list$merged_ensemble$`48`)
+```
+
+#### 18
+
+```{r}
+auc(mimic_roc_list$merged_ensemble$`72`)
+ci.auc(mimic_roc_list$merged_ensemble$`72`)
+```
+
+#### 24
+
+```{r}
+auc(mimic_roc_list$merged_ensemble$`96`)
+ci.auc(mimic_roc_list$merged_ensemble$`96`)
+```
+
+### SOFA at 24 hours
+
+```{r}
+auc(mimic_roc_list$sofa_24hours$`96`)
+ci.auc(mimic_roc_list$sofa_24hours$`96`)
+```
+
+```{r}
+roc.test(mimic_roc_list$merged_ensemble$`96`, mimic_roc_list$sofa_24hours$`96`)
+```
+
+### SAPS II at 24 hours
+
+```{r}
+auc(mimic_roc_list$sapsii$`96`)
+ci.auc(mimic_roc_list$sapsii$`96`)
+```
+
+```{r}
+roc.test(mimic_roc_list$merged_ensemble$`96`, mimic_roc_list$sapsii$`96`)
+```
