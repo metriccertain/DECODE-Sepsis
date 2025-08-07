@@ -1,13 +1,11 @@
 ---
-title: "Untitled"
 author: "Andrew Hanson"
-date: "2024-02-14"
 output: html_document
 ---
 
 ```{r setup, include=FALSE}
-# run in batch
-# Rscript -e "rmarkdown::render('zmimicSummary.Rmd')"
+# run this program
+# Rscript -e "rmarkdown::render('5mimicSummary.Rmd')"
 
 knitr::opts_chunk$set(echo = FALSE)
 
