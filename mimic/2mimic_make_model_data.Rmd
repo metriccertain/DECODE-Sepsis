@@ -23,6 +23,8 @@ library(tidyr)
 library(sqldf)
 library(arsenal)
 
+row_limit <- -1
+
 serial_minutes <- 15
 min_serial_count <- 2*4
 max_serial_count <- 24*4
@@ -118,23 +120,12 @@ qdata_scaler_function <- function(qdata, min_data=scaler_data[1,], max_data=scal
 ```
 
 ```{r demo_data}
-demo <- read.csv(file='./derived/v3/demo.csv'); dim(demo)
+demo <- read.csv(file='./derived/v4/demo.csv', nrows=row_limit); dim(demo)
 
-icustay_times <- read.csv(file='./derived/v3/icustay_times.csv')
+icustay_times <- read.csv(file='./derived/v4/icustay_times.csv')
 
 demo <- demo %>%
   inner_join(icustay_times, c('subject_id','hadm_id','stay_id')); dim(demo)
-
-#ck <- demo %>%
-#  mutate(
-#    d1 = round(as.numeric(difftime(as.POSIXct(intime_hr), as.POSIXct(intime), units='hours')), digits=1),
-#    d2 = round(as.numeric(difftime(as.POSIXct(outtime_hr), as.POSIXct(outtime), units='hours')), digits=1),
-#    d3 = round(as.numeric(difftime(as.POSIXct(outtime), as.POSIXct(intime), units='hours')), digits=1),
-#    d4 = round(as.numeric(difftime(as.POSIXct(outtime_hr), as.POSIXct(intime_hr), units='hours')), digits=1)
-#  ) %>%
-#  dplyr::select(
-#    intime, outtime, intime_hr, outtime_hr, d1, d2, d3, d4
-#  )
 
 demo <- demo %>%
   mutate(
@@ -194,7 +185,7 @@ demo <- demo %>%
 ```
 
 ```{r read_omr}
-`physionet-data.mimic_hosp.omr` <- read.csv(file='./hosp/omr.csv.gz')
+`physionet-data.mimic_hosp.omr` <- read.csv(file='./hosp/omr.csv.gz', nrows=row_limit)
 ```
 
 ```{r check_bmi}
@@ -307,7 +298,7 @@ demo <- demo %>%
 ```
 
 ```{r read_microbiology}
-`physionet-data.mimic_hosp.microbiologyevents` <- read.csv(file='./hosp/microbiologyevents.csv.gz')
+`physionet-data.mimic_hosp.microbiologyevents` <- read.csv(file='./hosp/microbiologyevents.csv.gz', nrows=row_limit)
 ```
 
 ```{r pneumonia_datetime}
@@ -419,7 +410,7 @@ qdemo <- qdemo %>%
 ```
 
 ```{r vitals_data}
-vitals <- read.csv(file='./derived/v3/vitals.csv')
+vitals <- read.csv(file='./derived/v4/vitals.csv', nrows=row_limit)
 
 vitals <- vitals %>%
   mutate(
@@ -460,7 +451,7 @@ for (vital in vitals_list){
 ```
 
 ```{r labs_data}
-labs <- read.csv(file='./derived/v3/labs.csv')
+labs <- read.csv(file='./derived/v4/labs.csv', nrows=row_limit)
 
 labs <- labs %>%
   mutate(
@@ -530,7 +521,7 @@ for (lab in labs_list){
 ```
 
 ```{r gcs}
-gcs <- read.csv(file='./derived/v3/gcs.csv')
+gcs <- read.csv(file='./derived/v4/gcs.csv', nrows=row_limit)
 
 gcs <- gcs %>%
   mutate(
@@ -552,9 +543,9 @@ qdemo <- srlz(data=rename(gcs, chartvalue = gcs), minutes=serial_minutes) %>% re
 ```
 
 ```{r read_inputevents}
-`physionet-data.mimic_icu.inputevents` <- read.csv(file='./icu/inputevents.csv.gz')
+`physionet-data.mimic_icu.inputevents` <- read.csv(file='./icu/inputevents.csv.gz', nrows=row_limit)
 
-`physionet-data.mimic_icu.d_items` <- read.csv(file='./icu/d_items.csv.gz')
+`physionet-data.mimic_icu.d_items` <- read.csv(file='./icu/d_items.csv.gz', nrows=row_limit)
 ```
 
 ```{r cpn}
@@ -592,7 +583,7 @@ qdemo <- qdemo %>%
 ```
 
 ```{r vasoactives}
-vasos <- read.csv(file='./derived/v3/vasoactives.csv')
+vasos <- read.csv(file='./derived/v4/vasoactives.csv', nrows=row_limit)
 ```
 
 ```{r vasoactives_flags}
@@ -681,7 +672,7 @@ qdemo <- qdemo %>%
 ```
 
 ```{r ventilation}
-vent <- read.csv(file='./derived/v3/ventilation.csv')
+vent <- read.csv(file='./derived/v4/ventilation.csv', nrows=row_limit)
 ```
 
 ```{r ventilation_flags}
@@ -739,7 +730,7 @@ qdemo <- qdemo %>%
 ```{r pneumonia_flags}
 qdemo <- qdemo %>%
   left_join(
-    dplyr::select(demo, subject_id, intime, age:pneumoniadttm), c('subject_id','intime')
+    dplyr::select(demo, subject_id, hadm_id, stay_id, intime, age:pneumoniadttm), c('subject_id','intime')
   ) %>%
   mutate(
     pneumonia = case_when(
@@ -753,21 +744,6 @@ qdemo <- qdemo %>%
 ```
 
 ```{r admission_ids}
-ids_mimic <- qdemo %>%
-  dplyr::select(subject_id, intime) %>%
-  distinct() %>%
-  arrange(intime) %>%
-  mutate(
-    admit_id = 1:n()
-  )
-
-if (params$write_data_mode == 'write') {
-  save(ids_mimic, file='./derived/v3/ids_mimic.Rdata')
-}
-
-qdemo <- qdemo %>%
-  left_join(ids_mimic, c('subject_id','intime'))
-
 qdemo <- qdemo %>%
   mutate(
     ecmo = 0, 
@@ -806,18 +782,13 @@ qdemo <- qdemo %>%
     lplatelet = log(platelet),
     lpotassium = log(potassium)
   )
-
-qdemo <- qdemo %>%
-  mutate(
-    train=-999
-  )
 ```
 
 ```{r}
 # new data
 qdemo_new <- qdemo %>%
   dplyr::select(
-    admit_id, train, dttm, row_id, inicu, peep, tidal_vol, map, hr, fio2, spo2, temp, rr, lglucose, hgb, lpotassium, 
+    subject_id, hadm_id, stay_id, dttm, row_id, inicu, peep, tidal_vol, map, hr, fio2, spo2, temp, rr, lglucose, hgb, lpotassium, 
     sodium, lplatelet, hct, ph, lcreatinine, lwbc, lbun, hco3, lpaco2, lpao2, llactate, linr, anion_gap, lptt, last, gcs, 
     ecmo, cpn, NOREPINEPHRINE, EPINEPHRINE, DOBUTAMINE, VASOPRESSIN, lactring, intinf, pulm_edema, pleural_eff, pneumonia, 
     invasive, noninvasive, vtother, age, male, lpre_icu_days, bmi, charlson_score, surg, transp, htn_hist, mi_hist, chf_hist, 
@@ -826,22 +797,11 @@ qdemo_new <- qdemo %>%
     mod_sev_kidney_disease_hist, dm_complications_hist, cancer_tumor_hist, leukemia_hist, lymphoma_hist, 
     mod_sev_liver_disease_hist, metastatic_cancer_hist, aids_hist, hosp_death, prlos_death
   ) %>%
-  arrange(admit_id, row_id)
+  arrange(subject_id, hadm_id, stay_id, row_id)
 ```
 
 ```{r}
 qdemo_new_scaled <- qdata_scaler_function(qdata=qdemo_new)
-
-# old data
-qdemo_old_scaled <- read.csv(file='./derived/v3/qdemo_scaled.csv') %>%
-  mutate(
-    dttm = as.POSIXct(dttm)
-  ) %>%
-  arrange(admit_id, row_id)
-
-comp <- comparedf(x=qdemo_old_scaled, y=qdemo_new_scaled, by = c('admit_id','row_id'), int.as.num = TRUE)
-
-summary(comp)
 ```
 
 ```{r write_no_lvcf}
@@ -863,7 +823,7 @@ qdemo <- qdemo %>%
 
 tmp <- qdemo %>% 
   dplyr::select(
-    admit_id, row_id, fio2, tidal_vol, peep
+    subject_id, hadm_id, stay_id, row_id, fio2, tidal_vol, peep
   )
 
 # set values off vent to missing so none of them get carried forward
@@ -883,7 +843,7 @@ for (var in c("lglucose", "hgb", "lpotassium", "sodium", "lplatelet", "hct", "ph
 
 # join fio2 (only observed values), tidal volumes and peep (both set to 0 in when non-ventilated)
 qdemo <- qdemo %>%
-  left_join(tmp, c('admit_id','row_id'))
+  left_join(tmp, c('subject_id','hadm_id','stay_id','row_id'))
 
 # when ventilated, we use the data with last values carried forward (allow carry forward), otherwise we use the 
 # off-vent values for fio2 (only observed values) and tidal volume and peep (all set to 0) 
@@ -902,7 +862,7 @@ qdemo <- qdemo %>%
 # new data
 qdemo_new <- qdemo %>%
   dplyr::select(
-    admit_id, train, dttm, row_id, inicu, peep, tidal_vol, map, hr, fio2, spo2, temp, rr, lglucose, hgb, lpotassium, 
+    subject_id, hadm_id, stay_id, dttm, row_id, inicu, peep, tidal_vol, map, hr, fio2, spo2, temp, rr, lglucose, hgb, lpotassium, 
     sodium, lplatelet, hct, ph, lcreatinine, lwbc, lbun, hco3, lpaco2, lpao2, llactate, linr, anion_gap, lptt, last, gcs, 
     ecmo, cpn, NOREPINEPHRINE, EPINEPHRINE, DOBUTAMINE, VASOPRESSIN, lactring, intinf, pulm_edema, pleural_eff, pneumonia, 
     invasive, noninvasive, vtother, age, male, lpre_icu_days, bmi, charlson_score, surg, transp, htn_hist, mi_hist, chf_hist, 
@@ -911,22 +871,11 @@ qdemo_new <- qdemo %>%
     mod_sev_kidney_disease_hist, dm_complications_hist, cancer_tumor_hist, leukemia_hist, lymphoma_hist, 
     mod_sev_liver_disease_hist, metastatic_cancer_hist, aids_hist, hosp_death, prlos_death
   ) %>%
-  arrange(admit_id, row_id)
+  arrange(subject_id, hadm_id, stay_id, row_id)
 ```
 
 ```{r}
 qdemo_new_scaled <- qdata_scaler_function(qdata=qdemo_new)
-
-# old data
-qdemo_old_scaled <- read.csv(file='./derived/v3/qdemo_lvcf_scaled.csv') %>%
-  mutate(
-    dttm = as.POSIXct(dttm)
-  ) %>%
-  arrange(admit_id, row_id)
-
-comp <- comparedf(x=qdemo_old_scaled, y=qdemo_new_scaled, by = c('admit_id','row_id'), int.as.num = TRUE)
-
-summary(comp)
 
 if (params$write_data_mode == 'write') {
   write.csv(qdemo_new_scaled, file='./derived/v4/qdemo_lvcf_scaled.csv', row.names=FALSE, na='')
