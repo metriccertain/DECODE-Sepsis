@@ -1,5 +1,4 @@
 import pandas as pd
-import tensorflow as tf
 import numpy as np
 import random
 
@@ -11,9 +10,12 @@ from sklearn.impute import SimpleImputer
 from sklearn.model_selection import train_test_split
 from sklearn.utils import shuffle
 
+import tensorflow as tf
+
 print(tf.__version__)
 
 tf.keras.utils.set_random_seed(292)
+
 ############################################################
 # predict_rows     last_session     total long rows
 #           24               96             6524112
@@ -33,26 +35,33 @@ last_session = 96
 ############################################################
 #  read serial data
 ############################################################
-dat = pd.read_csv('./derived/demo_scaled.csv')
+dat = pd.read_csv('./derived/v4/qdemo_lvcf_scaled.csv')
+
+dat = dat.sort_values(by = ["subject_id","hadm_id","stay_id","row_id"])
+dat["admit_id"] = dat.groupby(["subject_id","hadm_id","stay_id"]).ngroup()
 
 # data frame with unique admission ids and train flag
-admit_ids = dat.filter(["admit_id","train","prlos_death"]).drop_duplicates()
+admit_ids = dat.filter(["subject_id","hadm_id","stay_id","admit_id","prlos_death"]).drop_duplicates()
 admit_ids = admit_ids.sort_values(by = ["admit_id"])
 
 # serial data
 dat = dat.sort_values(by = ["admit_id","row_id"])
-dat = dat.drop(["dttm","train","prlos_death","intinf","pulm_edema","pleural_eff","lptt"], axis=1)
+dat = dat.drop(["subject_id","hadm_id","stay_id","dttm","prlos_death","intinf","pulm_edema","pleural_eff","lptt"], axis=1)
 
 print('serial data shape:', dat.shape)
 
 print('admit ID data shape:', admit_ids.shape)
 
-print('x:', range(admit_ids.shape[0]))
-print('y:', np.linspace(start=8, stop=last_session, num=int(last_session/8)))
-print('z:', range(-1*(predict_rows-8),last_session+1))
+x_range = np.array(admit_ids[["admit_id"]])[:,0]
+y_range = np.linspace(start=8, stop=last_session, num=last_session-8+1)
+z_range = range(-1*(predict_rows-8),last_session+1)
+
+print('x:', x_range.shape)
+print('y:', y_range)
+print('z:', z_range)
 
 # like expand.grid
-dat_long = np.array([(x,y,z) for x in np.array(admit_ids[["admit_id"]])[:,0] for y in np.linspace(start=8, stop=last_session, num=int(last_session/8)) for z in range(-1*(predict_rows-8),last_session+1)])
+dat_long = np.array([(x,y,z) for x in x_range for y in y_range for z in z_range])
 dat_long = pd.DataFrame(dat_long, columns = ['admit_id','session_id','row_id']) # rename
 dat_long = dat_long.assign(predict_rows = predict_rows).astype('float64')
 
@@ -80,9 +89,12 @@ tmp = tmp.reset_index()
 
 tmp["Count"].value_counts()
 
-# table with the ids and the outcomes should be used here to merge outcomes and train flag (outcomes and flag should merge with all row_ids, even negative ones that dont exist in dat)
-dat_long = pd.merge(left=dat_long, right=dat, on=["admit_id","row_id"], how='left')
+# table with the ids and the outcomes should be used here to merge outcomes and
+# train flag (outcomes and flag should merge with all row_ids, even negative ones
+# that dont exist in dat)
 dat_long = pd.merge(left=dat_long, right=admit_ids, on=["admit_id"], how='left')
+
+dat_long = pd.merge(left=dat_long, right=dat, on=["admit_id","row_id"], how='left')
 
 dat_long = dat_long.sort_values(by = ["admit_id","session_id","row_id"])
 
@@ -98,9 +110,9 @@ print('serial data shape:', dat_long.shape)
 
 dat_long = dat_long.sort_values(by = ["admit_id","session_id","row_id"])
 
-X_mimic = dat_long[(dat_long["train"] == -999)]
+X_mimic = dat_long
 
-ids_mimic = dat_long[(dat_long["train"] == -999)].groupby(["admit_id","session_id"]).head(n=1).filter(items=["admit_id","session_id","prlos_death"])
+ids_mimic = dat_long.groupby(["admit_id","session_id"]).head(n=1).filter(items=["admit_id","subject_id","hadm_id","stay_id","session_id","prlos_death"])
 
 y_mimic = ids_mimic.filter(items=["prlos_death"])
 
@@ -116,7 +128,7 @@ X1_mimic = X_mimic.groupby(["admit_id","session_id"]).tail(n=1)
 X1_mimic = pd.concat([X1_mimic.loc[:, "row_id"], X1_mimic.loc[:, "age":"aids_hist"]], axis=1)
 
 # subset to features
-X_mimic = X_mimic.loc[:,"inicu":"vtother"]
+X_mimic = X_mimic.loc[:, "inicu":"vtother"]
 
 print('RNN training data shape:', X_mimic.shape)
 print('X columns:', X_mimic.columns)
@@ -135,21 +147,19 @@ X_mimic = np.array(X_mimic)
 X_mimic = np.reshape(X_mimic, (y_mimic.shape[0], predict_rows, X_mimic.shape[1]))
 
 # load the models
-model_nolvcf_cnnsmall = tf.keras.models.load_model('../data/fitted_models/0053/nolvcf_cnnsmall_model/nolvcf_cnnsmall_tracebacks')
-model_nolvcf_cnntiny = tf.keras.models.load_model('../data/fitted_models/0053/nolvcf_cnntiny_model/nolvcf_cnntiny_tracebacks')
-model_nolvcf_lstmsmall = tf.keras.models.load_model('../data/fitted_models/0053/nolvcf_lstmsmall_model/nolvcf_lstmsmall_tracebacks')
-model_nolvcf_lstmtiny = tf.keras.models.load_model('../data/fitted_models/0053/nolvcf_lstmtiny_model/nolvcf_lstmtiny_tracebacks')
+model_merged_cnnsmall = tf.keras.models.load_model('../data/fitted_models/0053/merged_cnnsmall_model/merged_cnnsmall_tracebacks')
+model_merged_cnntiny = tf.keras.models.load_model('../data/fitted_models/0053/merged_cnntiny_model/merged_cnntiny_tracebacks')
+model_merged_lstmsmall = tf.keras.models.load_model('../data/fitted_models/0053/merged_lstmsmall_model/merged_lstmsmall_tracebacks')
+model_merged_lstmtiny = tf.keras.models.load_model('../data/fitted_models/0053/merged_lstmtiny_model/merged_lstmtiny_tracebacks')
 
 ############################################################
 # test mimic data
 ############################################################
 out_mimic = ids_mimic
 
-out_mimic["yhat_nolvcf_cnnsmall"] = model_nolvcf_cnnsmall.predict([X_mimic, X1_mimic])
-out_mimic["yhat_nolvcf_cnntiny"] = model_nolvcf_cnntiny.predict([X_mimic, X1_mimic])
-out_mimic["yhat_nolvcf_lstmsmall"] = model_nolvcf_lstmsmall.predict([X_mimic, X1_mimic])
-out_mimic["yhat_nolvcf_lstmtiny"] = model_nolvcf_lstmtiny.predict([X_mimic, X1_mimic])
+out_mimic["yhat_merged_cnnsmall"] = model_merged_cnnsmall.predict([X_mimic, X1_mimic])
+out_mimic["yhat_merged_cnntiny"] = model_merged_cnntiny.predict([X_mimic, X1_mimic])
+out_mimic["yhat_merged_lstmsmall"] = model_merged_lstmsmall.predict([X_mimic, X1_mimic])
+out_mimic["yhat_merged_lstmtiny"] = model_merged_lstmtiny.predict([X_mimic, X1_mimic])
 
-out_mimic.to_csv('./results/v3/ztest_mimicRNN_nolvcf_predicted.csv', index=False)
-
-out_mimic.shape
+out_mimic.to_csv('./results/v4/ztest_mimicRNN_merged_predicted.csv', index=False)
