@@ -1,4 +1,5 @@
 ---
+title: "1mimic_derive"
 author: "Andrew Hanson"
 output: html_document
 ---
@@ -19,21 +20,21 @@ row_limit <- -1
 ## Admissions
 
 ```{r read services}
-`physionet-data.mimic_hosp.services` <- read.csv(file='./hosp/services.csv.gz', nrows=row_limit)
+`physionet-data.mimic_hosp.services` <- read.csv(file='../../hosp/services.csv.gz', nrows=row_limit)
 ```
 
 ```{r read_admit_data}
-`physionet-data.mimic_icu.icustays` <- read.csv(file='./icu/icustays.csv.gz', nrows=row_limit)
+`physionet-data.mimic_icu.icustays` <- read.csv(file='../../icu/icustays.csv.gz', nrows=row_limit)
 
 # list of hospitalizations with ICU stays - keep only these patients and admissions
 icustays_lst <- `physionet-data.mimic_icu.icustays` %>%
   dplyr::select(subject_id, hadm_id) %>%
   distinct()
 
-`physionet-data.mimic_core.patients` <- read.csv(file='./hosp/patients.csv.gz', nrows=row_limit) %>%
+`physionet-data.mimic_core.patients` <- read.csv(file='../../hosp/patients.csv.gz', nrows=row_limit) %>%
   inner_join(icustays_lst, 'subject_id')
 
-`physionet-data.mimic_core.admissions` <- read.csv(file='./hosp/admissions.csv.gz', nrows=row_limit) %>%
+`physionet-data.mimic_core.admissions` <- read.csv(file='../../hosp/admissions.csv.gz', nrows=row_limit) %>%
   inner_join(icustays_lst, c('subject_id','hadm_id'))
 ```
 
@@ -76,14 +77,14 @@ WHERE serviceorder = 1 AND surgical = 1
 ## Suspicion of infection
 
 ```{r read_antibiotic}
-`physionet-data.mimic_hosp.prescriptions` <- read.csv(file='./hosp/prescriptions.csv.gz', nrows=row_limit) %>%
+`physionet-data.mimic_hosp.prescriptions` <- read.csv(file='../../hosp/prescriptions.csv.gz', nrows=row_limit) %>%
   inner_join(icustays_lst, c('subject_id','hadm_id'))
 
 prescriptions_db <- tbl_memdb(`physionet-data.mimic_hosp.prescriptions`) 
 ```
 
 ```{r read_microbiology}
-`physionet-data.mimic_hosp.microbiologyevents` <- read.csv(file='./hosp/microbiologyevents.csv.gz', nrows=row_limit) %>%
+`physionet-data.mimic_hosp.microbiologyevents` <- read.csv(file='../../hosp/microbiologyevents.csv.gz', nrows=row_limit) %>%
   inner_join(icustays_lst, c('subject_id','hadm_id'))
 
 microbiologyevents_db <- tbl_memdb(`physionet-data.mimic_hosp.microbiologyevents`)
@@ -123,7 +124,7 @@ icustays_lst <- `physionet-data.mimic_icu.icustays` %>%
   inner_join(susp_lst, c('subject_id','hadm_id')) %>%
   distinct()
 
-mimic_icu.chartevents <- read.csv(file='./icu/chartevents.csv.gz', nrows=row_limit) %>%
+mimic_icu.chartevents <- read.csv(file='../../icu/chartevents.csv.gz', nrows=row_limit) %>%
   inner_join(icustays_lst, c('subject_id','hadm_id'))
 
 # only care about the first 24 hours
@@ -151,7 +152,7 @@ weight_durations_db <- tbl_memdb(`physionet-data.mimic_derived.weight_durations`
 ```
 
 ```{r read_outputevents}
-`physionet-data.mimic_icu.outputevents` <- read.csv(file='./icu/outputevents.csv.gz', nrows=row_limit) %>%
+`physionet-data.mimic_icu.outputevents` <- read.csv(file='../../icu/outputevents.csv.gz', nrows=row_limit) %>%
   inner_join(icustays_lst, c('subject_id','hadm_id'))
 
 outputevents_db <- tbl_memdb(`physionet-data.mimic_icu.outputevents`)
@@ -186,7 +187,7 @@ icustay_times_db <- tbl_memdb(`physionet-data.mimic_derived.icustay_times`)
 ## Vasopressors
 
 ```{r read_inputevents}
-`physionet-data.mimic_icu.inputevents` <- read.csv(file='./icu/inputevents.csv.gz', nrows=row_limit) %>%
+`physionet-data.mimic_icu.inputevents` <- read.csv(file='../../icu/inputevents.csv.gz', nrows=row_limit) %>%
   inner_join(icustays_lst, c('subject_id','hadm_id'))
 
 inputevents_db <- tbl_memdb(`physionet-data.mimic_icu.inputevents`)
@@ -303,7 +304,7 @@ age_db <- tbl_memdb(`physionet-data.mimic_derived.age`)
 ## Comorbidities
 
 ```{r read_diagnoses_icd}
-`physionet-data.mimic_hosp.diagnoses_icd` <- read.csv(file='./hosp/diagnoses_icd.csv.gz', nrows=row_limit) %>%
+`physionet-data.mimic_hosp.diagnoses_icd` <- read.csv(file='../../hosp/diagnoses_icd.csv.gz', nrows=row_limit) %>%
   inner_join(icustays_lst, c('subject_id','hadm_id'))
 
 dignoses_db <- tbl_memdb(`physionet-data.mimic_hosp.diagnoses_icd`)
@@ -334,7 +335,7 @@ vitalsign_db <- tbl_memdb(`physionet-data.mimic_derived.vitalsign`)
 ## Coagulation
 
 ```{r read_labevents}
-mimic_hosp.labevents <- read.csv(file='./hosp/labevents.csv.gz', nrows=row_limit) %>%
+mimic_hosp.labevents <- read.csv(file='../../hosp/labevents.csv.gz', nrows=row_limit) %>%
   inner_join(icustays_lst, c('subject_id','hadm_id'))
 
 labevents_db <- tbl_memdb(mimic_hosp.labevents)
@@ -455,7 +456,7 @@ sepsis3_db <- tbl_memdb(`physionet-data.mimic_derived.sepsis3`)
 ## Surgical admission and Transplant
 
 ```{r read_drg_data}
-`physionet-data.mimic_hosp.drgcodes` <- read.csv(file='./hosp/drgcodes.csv.gz', nrows=row_limit)
+`physionet-data.mimic_hosp.drgcodes` <- read.csv(file='../../hosp/drgcodes.csv.gz', nrows=row_limit)
 ```
 
 ```{r get_transplants}
@@ -648,6 +649,61 @@ out_tb <- out_tb %>%
   left_join(tmp, c('hadm_id','subject_id')); dim(out_tb)
 ```
 
+```{r mimic_start_stop_times}
+tmp <- `physionet-data.mimic_derived.icustay_times` %>%
+  filter(
+    intime_hr != ''
+  )
+
+out_tb <- out_tb %>%
+  inner_join(tmp, join_by(subject_id, hadm_id, stay_id))
+
+out_tb <- out_tb %>%
+  mutate(
+    intime = intime_hr,
+    icu_days = round(as.numeric(difftime(outtime, intime, units='days')), digits=3)
+  ) %>%
+  dplyr::select(
+    -intime_hr, -outtime_hr
+  ); dim(out_tb)
+
+out_tb <- out_tb %>%
+  distinct()
+
+out_tb <- out_tb %>%
+  filter(
+    icu_days > 1.85/24
+  ); dim(out_tb)
+```
+
+```{r mimic_suspicion_of_infection}
+tmp <- `physionet-data.mimic_derived.suspicion_of_infection` %>%                           
+  filter(
+    !is.na(stay_id) & suspected_infection == 1 & suspected_infection_time != ''
+  )
+
+tmp <- tmp %>%
+  arrange(subject_id, hadm_id, stay_id, suspected_infection_time, antibiotic_time) %>%
+  group_by(subject_id, hadm_id, stay_id) %>%
+  slice_head(n=1) %>%
+  ungroup() %>%
+  dplyr::select(
+    subject_id, hadm_id, stay_id, suspected_infection_time, antibiotic_time
+  )
+
+out_tb <- out_tb %>%
+  left_join(tmp, join_by(subject_id, hadm_id, stay_id))
+
+out_tb <- out_tb %>%
+  mutate(
+    susp = if_else(as.POSIXct(admittime) - 24*3600 <= suspected_infection_time & suspected_infection_time <= as.POSIXct(intime) + 24*3600 &
+                     suspected_infection_time <= outtime, 1, 0)
+    ); dim(out_tb)
+
+out_tb <- out_tb %>%
+  filter(susp == 1); dim(out_tb)
+```
+
 ```{r}
 # surgical
 out_tb <- out_tb %>%
@@ -666,6 +722,155 @@ out_tb <- out_tb %>%
     iculos = round(as.numeric(difftime(outtime, intime, units='days')), digits=3), 
     bmi = round(weight / (height/100)^2, digits=1)
   )
+```
+
+```{r read_omr}
+`physionet-data.mimic_hosp.omr` <- read.csv(file='../../hosp/omr.csv.gz', nrows=row_limit)
+```
+
+```{r check_bmi}
+tmp <- `physionet-data.mimic_hosp.omr` %>%
+  filter(result_name == 'BMI (kg/m2)') %>% 
+  mutate(
+    chartdate = as.Date(chartdate),
+    bmi = as.numeric(result_value)
+  ) %>%
+  filter(10 <= bmi & bmi < 100) %>%
+  dplyr::select(
+    subject_id, chartdate, bmi
+  )
+
+tmp <- tmp %>%
+  inner_join(
+    dplyr::select(out_tb, subject_id, intime), 'subject_id', relationship='many-to-many'
+  ) %>%
+  mutate(
+    indate = as.Date(intime),
+    dif = abs(as.numeric(indate) - as.numeric(chartdate)),
+    prior_flag = as.numeric(chartdate <= indate)
+  )
+
+tmp <- tmp %>%
+  arrange(subject_id, intime, prior_flag, dif) %>%
+  group_by(subject_id, intime, prior_flag) %>%
+  slice_head(n=1) %>%
+  ungroup() %>%
+  dplyr::select(
+    subject_id, intime, prior_flag, dif, bmi 
+  )
+
+out_tb <- out_tb %>%
+  left_join(filter(tmp, prior_flag == 1), c('subject_id','intime')) %>%
+  dplyr::select(
+    -prior_flag
+  )
+
+out_tb <- out_tb %>%
+  left_join(filter(tmp, prior_flag == 0), c('subject_id','intime')) %>%
+  dplyr::select(
+    -prior_flag
+  )
+
+out_tb <- out_tb %>%
+  mutate(
+    bmi = coalesce(bmi.x, bmi.y, bmi)
+  ) %>%
+  dplyr::select(
+    -ends_with(".x"), -ends_with(".y")
+  )
+```
+
+```{r check_height}
+tmp <- `physionet-data.mimic_hosp.omr` %>%
+  filter(result_name == 'Height (Inches)') %>%
+  mutate(
+    chartdate = as.Date(chartdate),
+    height = as.numeric(result_value)*2.54
+  ) %>%
+  filter(100 <= height & height < 250) %>%
+  dplyr::select(
+    subject_id, chartdate, height
+  )
+
+tmp <- tmp %>%
+  inner_join(
+    dplyr::select(out_tb, subject_id, intime), 'subject_id', relationship='many-to-many'
+  ) %>%
+  mutate(
+    indate = as.Date(intime),
+    dif = abs(as.numeric(indate) - as.numeric(chartdate)),
+    prior_flag = as.numeric(chartdate <= indate)
+  )
+
+tmp <- tmp %>%
+  arrange(subject_id, intime, prior_flag, dif) %>%
+  group_by(subject_id, intime, prior_flag) %>%
+  slice_head(n=1) %>%
+  ungroup() %>%
+  dplyr::select(
+    subject_id, intime, prior_flag, dif, height 
+  )
+
+out_tb <- out_tb %>%
+  left_join(filter(tmp, prior_flag == 1), c('subject_id','intime')) %>%
+  dplyr::select(
+    -prior_flag
+  )
+
+out_tb <- out_tb %>%
+  left_join(filter(tmp, prior_flag == 0), c('subject_id','intime')) %>%
+  dplyr::select(
+    -prior_flag
+  )
+
+out_tb <- out_tb %>%
+  mutate(
+    height = coalesce(height.x, height.y, height)
+  )
+
+out_tb <- out_tb %>%
+  mutate(
+    bmi = if_else(is.na(bmi), weight / (height/100)^2, bmi)
+  ) %>%
+  dplyr::select(
+    -ends_with(".x"), -ends_with(".y")
+  )
+```
+
+```{r pneumonia_datetime}
+# pneumonia
+tmp <- `physionet-data.mimic_hosp.microbiologyevents` %>%
+  filter(spec_type_desc == 'SPUTUM') %>%
+  filter(org_name != '' & org_itemid != 90856) %>%
+  mutate(
+    charttime = as.POSIXct(charttime, format="%Y-%m-%d %H:%M:%S"), 
+    positiveculture = 1
+  ) %>%
+  dplyr::select(
+    subject_id, charttime, positiveculture
+  ) %>%
+  distinct()
+
+tmp <- tmp %>%
+  inner_join(dplyr::select(
+    out_tb, subject_id, hadm_id, stay_id, admittime, dischtime), 'subject_id', relationship='many-to-many'
+  )
+
+tmp <- tmp %>%
+  filter(as.Date(admittime) <= as.Date(charttime) & as.Date(charttime) <= as.Date(dischtime)) %>%
+  arrange(subject_id, hadm_id, stay_id, charttime) %>%
+  group_by(subject_id, hadm_id, stay_id) %>%
+  slice_head(n=1) %>%
+  ungroup() %>%
+  rename(
+    pneumoniadttm = charttime
+  ) %>%
+  dplyr::select(
+    subject_id, hadm_id, stay_id, pneumoniadttm
+  )
+  
+out_tb <- out_tb %>%
+  left_join(tmp, c('subject_id','hadm_id', 'stay_id'))
 ```
 
 ```{r longitudinal_vitals}
@@ -765,6 +970,32 @@ out_vasos <- mutate(`physionet-data.mimic_derived.dobutamine`, med = 'dobutamine
   bind_rows(mutate(`physionet-data.mimic_derived.vasopressin`, med = 'vasopressin'))
 ```
 
+```{r read_d_items}
+`physionet-data.mimic_icu.d_items` <- read.csv(file='../../icu/d_items.csv.gz', nrows=row_limit)
+```
+
+```{r cpn}
+cpn <- `physionet-data.mimic_icu.d_items` %>%
+  filter(category == 'Nutrition - Parenteral') %>%
+  dplyr::select(
+    itemid
+  ) %>%
+  distinct() %>%
+  inner_join(`physionet-data.mimic_icu.inputevents`, 'itemid') %>%
+  dplyr::select(
+    subject_id, starttime, endtime
+  )
+```
+
+
+```{r ringers_lactate}
+ringers_lactate <- `physionet-data.mimic_icu.inputevents` %>% 
+  filter(itemid %in% c(225827, 225828)) %>%
+  dplyr::select(
+    subject_id, starttime, endtime, amount, totalamount, ordercategoryname, ordercategorydescription
+  )
+```
+
 ```{r write_cohort_lab_vitals_data}
 # demo data
 write.csv(out_tb, file='./derived/v4/demo.csv', row.names=FALSE, na='')
@@ -807,6 +1038,12 @@ write.csv(`physionet-data.mimic_derived.sepsis3`, file='./derived/v4/sepsis.csv'
 
 # saps
 write.csv(`physionet-data.mimic_derived.sapsii`, file='./derived/v4/sapsii.csv', row.names=FALSE, na='')
+
+# cpn
+write.csv(cpn, file='./derived/v4/cpn.csv', row.names=FALSE, na='')
+
+# ringers lactate
+write.csv(ringers_lactate, file='./derived/v4/ringers_lactate.csv', row.names=FALSE, na='')
 ```
 
 ```{r}
