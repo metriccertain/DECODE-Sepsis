@@ -364,7 +364,7 @@ qdemo <- qdemo %>%
   left_join(tmp, join_by(subject_id, intime, dttm))
 
 qdemo <- qdemo %>%
-  left_join(labs1, join_by(subject_id, intime, row_id))
+  left_join(labs1, join_by(subject_id, intime, dttm))
 
 qdemo <- qdemo %>%
   mutate(
