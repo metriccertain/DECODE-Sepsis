@@ -238,7 +238,7 @@ tmp <- tmp %>%
   pivot_wider(id_cols = subject_id:dttm, names_from = chartname, values_from = chartvalue)
 
 qdemo <- qdemo %>%
-  left_join(tmp, join_by(id, row_id))
+  left_join(tmp, join_by(subject_id, intime, dttm))
 ```
 
 ```{r labs_data}
@@ -277,32 +277,48 @@ labs <- labs %>%
 labs_list <- c("glucose", "hgb", "potassium", "sodium", "platelet", "hct", "ph", "creatinine", "wbc", "bun",
                "hco3", "paco2", "pao2", "lactate", "inr", "anion_gap", "ptt", "ast")
 
-# labs prior to admission, already filtered to within 6 hours
-labs1 <- labs %>%
-  filter(charttime < intime) %>%
-  arrange(subject_id, intime, chartname, charttime) %>%
-  group_by(subject_id, intime, chartname) %>%
-  slice_tail(n=1) %>%
-  ungroup() %>%
+labs1 <- qdemo %>%
   mutate(
-    row_id = 1
+    prior_dttm = dttm - 6*3600
   ) %>%
+  arrange(subject_id, intime, dttm) %>%
+  group_by(subject_id, intime) %>%
+  slice_head(n=1) %>%
+  ungroup() %>%
   dplyr::select(
-    subject_id, intime, row_id, chartname, charttime, chartvalue
+    subject_id, intime, dttm, prior_dttm
   )
 
 labs1 <- labs1 %>%
+  inner_join(
+    dplyr::select(labs, subject_id, charttime, chartname, chartvalue), join_by(subject_id, prior_dttm<charttime, dttm>=charttime)
+  ); dim(labs1)
+
+labs1 <- labs1 %>%
   dplyr::select(
-    subject_id, intime, row_id, chartname, chartvalue
-  )
+    subject_id, intime, dttm, charttime, chartname, chartvalue
+  ) %>%
+  distinct(); dim(labs1)
+
+labs1 <- labs1 %>%
+  filter(
+    chartname %in% toupper(labs_list)
+  ); dim(labs1)
+
+labs1 <- labs1 %>%
+  arrange(subject_id, intime, dttm, chartname, charttime) %>%
+  group_by(subject_id, intime, dttm, chartname) %>%
+  slice_tail(n=1) %>%
+  ungroup(); dim(labs1)
 
 labs1 <- labs1 %>%
   mutate(
     chartname = tolower(chartname)
-  )
-
-labs1 <- labs1 %>%
-  pivot_wider(id_cols = subject_id:row_id, names_from = chartname, values_from = chartvalue)
+  ) %>%
+  dplyr::select(
+    -charttime
+  ) %>%
+  pivot_wider(id_cols = subject_id:dttm, names_from = chartname, values_from = chartvalue)
 
 # serial data
 tmp <- qdemo %>%
@@ -345,7 +361,7 @@ tmp <- tmp %>%
   pivot_wider(id_cols = subject_id:dttm, names_from = chartname, values_from = chartvalue)
 
 qdemo <- qdemo %>%
-  left_join(tmp, join_by(id, row_id))
+  left_join(tmp, join_by(subject_id, intime, dttm))
 
 qdemo <- qdemo %>%
   left_join(labs1, join_by(subject_id, intime, row_id))
