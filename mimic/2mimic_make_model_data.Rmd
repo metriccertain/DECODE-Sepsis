@@ -19,7 +19,8 @@ params:
 
 library(dplyr)
 library(tidyr)
-library(sqldf)
+library(vctrs)
+library(lubridate)
 library(arsenal)
 
 row_limit <- -1
@@ -53,6 +54,7 @@ demo <- demo %>%
   mutate(
     intime = as.POSIXct(intime), 
     outtime = as.POSIXct(outtime),
+    pneumoniadttm = if_else(pneumoniadttm == '', NA, pneumoniadttm),
     preiculos = if_else(preiculos <= 0, 0, preiculos),
     lpre_icu_days = log(preiculos + 0.001)
   ) %>%
@@ -89,21 +91,21 @@ demo <- demo %>%
     cva_hist, copd_hist, asthma_hist, ild_hist, chronic_pulmonary_disease_hist, connective_tissue_disease_hist, dm_hist, pud_hist, 
     cirr_mild_liver_disease_hist, hemiplegia_paraplegia_hist,
     mod_sev_kidney_disease_hist, dm_complications_hist, cancer_tumor_hist, leukemia_hist, lymphoma_hist, mod_sev_liver_disease_hist,
-    metastatic_cancer_hist, aids_hist, hosp_death, prlos_death
+    metastatic_cancer_hist, aids_hist, hosp_death, prlos_death, pneumoniadttm
   )
 ```
 
 ```{r expand_qdemo}
 qdemo <- demo %>%
   mutate(
-    start_dttm = intime - as.numeric(format(intime, format="%M"))*60
+    start_dttm = as_datetime(intime) - minutes(minute(as_datetime(intime))) - seconds(second(as_datetime(intime)))
   ) %>%
   rowwise() %>%
   mutate(subject_id, intime, outtime, dttm = list(start_dttm + seq(0, 48*3600, by = serial_minutes*60))) %>%
   unnest(dttm) %>%
   ungroup() %>%
   filter(
-    intime <= dttm & dttm <= outtime & dttm <= intime + 24*3600
+    intime <= dttm & dttm <= outtime & dttm <= as_datetime(intime) + hours(25)
   ) %>%
   dplyr::select(
     subject_id, intime, outtime, dttm
@@ -187,7 +189,7 @@ vitals <- vitals %>%
   inner_join(tmp, 'subject_id', relationship='many-to-many')
 
 vitals <- vitals %>%
-  filter(intime - 6*3600 <= charttime & charttime <= intime + 7*24*3600)
+  filter(intime - 6*3600 <= charttime & charttime <= intime + 1.1*24*3600)
 
 vitals <- vitals %>%
   mutate(
@@ -247,7 +249,13 @@ labs <- read.csv(file='./derived/v4/labs.csv', nrows=row_limit)
 labs <- labs %>%
   mutate(
     charttime = as.POSIXct(charttime)
-  )
+  ); dim(labs)
+
+labs <- labs %>%
+  dplyr::select(
+    subject_id, charttime, glucose:ast
+  ) %>%
+  distinct(); dim(labs)
 ```
 
 ```{r check_labs_data}
@@ -255,16 +263,19 @@ labs <- labs %>%
   pivot_longer(cols=glucose:ast, names_to = 'chartname', values_to = 'chartvalue') %>%
   filter(!is.na(chartvalue))
 
+labs <- labs %>%
+  distinct()
+
 tmp <- demo %>%
   dplyr::select(
     subject_id, hadm_id, stay_id, intime, outtime
   )
 
 labs <- labs %>%
-  inner_join(tmp, c('subject_id','hadm_id'), relationship='many-to-many')
+  inner_join(tmp, join_by(subject_id), relationship='many-to-many')
 
 labs <- labs %>%
-  filter(intime - 6*3600 <= charttime & charttime <= intime + 7*24*3600)
+  filter(as_datetime(intime) - hours(6) <= charttime & charttime <= as_datetime(intime) + hours(25))
 
 labs <- labs %>%
   mutate(
@@ -291,7 +302,7 @@ labs1 <- qdemo %>%
 
 labs1 <- labs1 %>%
   inner_join(
-    dplyr::select(labs, subject_id, charttime, chartname, chartvalue), join_by(subject_id, prior_dttm<charttime, dttm>=charttime)
+    dplyr::select(labs, subject_id, charttime, chartname, chartvalue), join_by(subject_id, prior_dttm<=charttime, dttm>=charttime)
   ); dim(labs1)
 
 labs1 <- labs1 %>%
@@ -361,10 +372,10 @@ tmp <- tmp %>%
   pivot_wider(id_cols = subject_id:dttm, names_from = chartname, values_from = chartvalue)
 
 qdemo <- qdemo %>%
-  left_join(tmp, join_by(subject_id, intime, dttm))
+  left_join(tmp, join_by(subject_id, intime, dttm)); dim(qdemo)
 
 qdemo <- qdemo %>%
-  left_join(labs1, join_by(subject_id, intime, dttm))
+  left_join(labs1, join_by(subject_id, intime, dttm)); dim(qdemo)
 
 qdemo <- qdemo %>%
   mutate(
@@ -401,7 +412,8 @@ gcs <- gcs %>%
   ) %>%
   dplyr::select(
     subject_id, charttime, gcs
-  )
+  ) %>%
+  distinct()
 
 tmp <- qdemo %>%
   mutate(
@@ -412,7 +424,7 @@ tmp <- qdemo %>%
   )
 
 tmp <- tmp %>%
-  inner_join(gcs, join_by(subject_id, prior_dttm<charttime, dttm>charttime))
+  inner_join(gcs, join_by(subject_id, prior_dttm<charttime, dttm>=charttime))
 
 tmp <- tmp %>%
   arrange(subject_id, intime, dttm, charttime) %>%
@@ -424,11 +436,11 @@ tmp <- tmp %>%
   )
 
 qdemo <- qdemo %>%
-  left_join(tmp, join_by(subject_id, intime, dttm))
+  left_join(tmp, join_by(subject_id, intime, dttm)); dim(qdemo)
 ```
 
 ```{r cpn}
-cpn <- read.csv(file='./derived/v4/cpn.csv')
+cpn <- read.csv(file='./derived/v4/cpn.csv', nrows=row_limit)
 
 tmp <- cpn %>%
   inner_join(
@@ -493,7 +505,9 @@ qdemo <- qdemo %>%
 ```
 
 ```{r ringers_lactate}
-ringers_lactate <- read.csv('./derived/v4/ringers_lactate.csv') %>%
+ringers_lactate <- read.csv('./derived/v4/ringers_lactate.csv', nrows=row_limit)
+
+ringers_lactate <- ringers_lactate %>%
   mutate(
     starttime = as.POSIXct(starttime), 
     endtime = as.POSIXct(endtime)
@@ -674,14 +688,18 @@ qdemo <- qdemo %>%
   )
 
 qdemo <- qdemo %>%
-  arrange(subject_id, intime, dttm) %>%
+  arrange(subject_id, intime, row_id) %>%
   group_by(subject_id, intime) %>%
   mutate(
-    across(lglucose:gcs, ~vctrs::vec_fill_missing(.x, max_fill = 24))
+    across(
+      c(peep, tidal_vol, map, hr, fio2, spo2, temp, rr, lglucose, hgb, lpotassium, sodium, lplatelet,
+         hct, ph, lcreatinine, lwbc, lbun, hco3, lpaco2, lpao2, llactate,
+          linr, anion_gap, lptt, last, gcs), ~vctrs::vec_fill_missing(.x, direction = 'down', max_fill = 23)
+    )
   ) %>%
   ungroup()
 
-# join fio2 (only observed values), tidal volumes and peep (both set to 0 in when non-ventilated)
+# join fio2 (only observed values), tidal volumes and peep (both set to 0 when non-ventilated)
 qdemo <- qdemo %>%
   left_join(tmp, c('subject_id','hadm_id','stay_id','row_id'))
 

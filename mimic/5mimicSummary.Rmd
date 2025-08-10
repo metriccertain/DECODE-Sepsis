@@ -55,7 +55,7 @@ get_cal_data <- function(data, response, predictor) {
 }
 ```
 
-```{r}
+```{r read_predicteds}
 pred_nn <- read.csv(file='./results/v4/ztest_mimicNN_predicted.csv') %>%
   dplyr::select(
     subject_id, hadm_id, stay_id, admit_id, session_id, starts_with('yhat')
@@ -84,86 +84,17 @@ preds <- preds %>%
 
 ```{r load_mimic_demo_data}
 # MIMIC data
-mimic_main <- read.csv('./derived/v4/demo.csv') %>%
-  dplyr::select(
-    -iculos, -los
+mimic_main <- read.csv('./derived/v4/demo.csv')
+
+mimic_main <- mimic_main %>%
+  mutate(
+    hosp_death = hospital_expire_flag,
+    prlos_death = case_when(
+      hosp_death == 1 ~ 1,
+      as.numeric(difftime(outtime, intime, units='days')) > 14 ~ 1,
+      TRUE ~ 0
+    )
   )
-
-mimic_main <- mimic_main %>%
-  mutate(
-    intime = as.POSIXct(intime), 
-    outtime = as.POSIXct(outtime),
-    admittime = as.POSIXct(admittime),
-    dischtime = as.POSIXct(dischtime)
-  ); dim(mimic_main)
-```
-
-```{r mimic_start_stop_times}
-# get the start date time
-icustay_times <- read.csv(file='./derived/v4/icustay_times.csv') %>%
-  filter(
-    intime_hr != ''
-  ) %>%
-  mutate(
-    intime_hr = as.POSIXct(intime_hr),
-    outtime_hr = as.POSIXct(outtime_hr),
-  ); dim(icustay_times)
-
-mimic_main <- mimic_main %>%
-  inner_join(icustay_times, join_by(subject_id, hadm_id, stay_id)); dim(mimic_main)
-
-# change intime, but not outtime b/c _hr vars are based on vitals and we only read in 36 hours
-mimic_main <- mimic_main %>%
-  mutate(
-    intime = intime_hr,
-    icu_days = round(as.numeric(difftime(outtime, intime, units='days')), digits=3),
-  ) %>%
-  dplyr::select(
-    -intime_hr, -outtime_hr
-  )
-
-mimic_main <- mimic_main %>%
-  distinct(); dim(mimic_main)
-
-mimic_main <- mimic_main %>%
-  filter(
-    icu_days > 1.85/24
-  ); dim(mimic_main)
-
-rm(icustay_times)
-```
-
-```{r mimic_suspicion_of_infection}
-suspicion_of_infection <- read.csv(file='./derived/v4/suspicion_of_infection.csv')
-
-suspicion_of_infection <- suspicion_of_infection %>%                           
-  filter(
-    !is.na(stay_id) & suspected_infection == 1 & suspected_infection_time != ''
-  ) %>%
-  mutate(
-    suspected_infection_time = as.POSIXct(suspected_infection_time),
-    antibiotic_time = as.POSIXct(antibiotic_time)
-  )
-
-suspicion_of_infection <- suspicion_of_infection %>%
-  arrange(subject_id, hadm_id, stay_id, suspected_infection_time, antibiotic_time) %>%
-  group_by(subject_id, hadm_id, stay_id) %>%
-  slice_head(n=1) %>%
-  ungroup() %>%
-  dplyr::select(
-    subject_id, hadm_id, stay_id, suspected_infection_time, antibiotic_time
-  )
-
-mimic_main <- mimic_main %>%
-  left_join(suspicion_of_infection, join_by(subject_id, hadm_id, stay_id))
-
-mimic_main <- mimic_main %>%
-  mutate(
-    susp = if_else(admittime-24*3600 <= suspected_infection_time & suspected_infection_time <= intime + 24*3600 &
-                     suspected_infection_time <= outtime, 1, 0)
-    ); dim(mimic_main)
-
-rm(suspicion_of_infection)
 ```
 
 ```{r mimic_sofa}
@@ -173,11 +104,11 @@ sofa_mimic <- read.csv(file='./derived/v4/sofa.csv')
 # SOFA >= 2 within 24 hours
 sofa_mimic <- sofa_mimic %>%
   filter(
-    sofa_24hours >= 2 & hr <= 24
+    hr <= 24
   )
 
 sofa_mimic <- sofa_mimic %>%
-  arrange(stay_id, sofa_24hours) %>%
+  arrange(stay_id, hr) %>%
   group_by(stay_id) %>%
   slice_tail(n=1) %>%
   ungroup() %>%
@@ -189,71 +120,6 @@ mimic_main <- mimic_main %>%
   inner_join(sofa_mimic, join_by(stay_id)); dim(mimic_main)
 
 rm(sofa_mimic)
-```
-
-```{r lactate}
-# for each subject, every time they had a lactate greater than 2
-lactate_mimic <- read.csv(file='./derived/v4/labs.csv') %>%
-  mutate(
-    charttime = as.POSIXct(charttime)
-  ) %>%
-  filter(!is.na(lactate) & lactate >= 2) %>%
-  dplyr::select(
-    subject_id, charttime
-  )
-
-mimic_main <- mimic_main %>%
-  left_join(lactate_mimic, join_by(subject_id), relationship = 'many-to-many')
-
-# flag for lactate > 2 within 24 hours of admission
-mimic_main <- mimic_main %>%
-  mutate(
-    lactate2 = if_else(!is.na(charttime) & intime-24*3600 <= charttime & charttime <= intime+24*3600, 1, 0)
-  ) %>%
-  dplyr::select(
-    -charttime
-  )
-
-mimic_main <- mimic_main %>%
-  arrange(stay_id, lactate2) %>%
-  group_by(stay_id) %>%
-  slice_tail(n=1) %>%
-  ungroup(); dim(mimic_main)
-
-rm(lactate_mimic)
-```
-
-```{r mimic_vasos}
-vasos_mimic <- read.csv(file='./derived/v4/vasoactives.csv') %>%
-  mutate(
-    starttime = as.POSIXct(starttime),
-    endtime = as.POSIXct(endtime)
-  ) %>%
-  dplyr::select(
-    stay_id, starttime, endtime
-  )
-
-mimic_main <- mimic_main %>%
-  left_join(vasos_mimic, join_by(stay_id))
-
-mimic_main <- mimic_main %>%
-  mutate(
-    vasos = if_else(!is.na(starttime) & starttime <= intime+24*3600 & endtime > intime, 1, 0)
-  ) %>%
-  dplyr::select(
-    -starttime, -endtime
-  ) %>%
-  arrange(stay_id, vasos) %>%
-  group_by(stay_id) %>%
-  slice_tail(n=1) %>%
-  ungroup(); dim(mimic_main)
-
-rm(vasos_mimic)
-```
-
-```{r}
-mimic_main <- mimic_main %>%
-  filter(susp == 1); dim(mimic_main)
 ```
 
 ```{r mimic_aps}
@@ -289,21 +155,7 @@ mimic_main <- mimic_main %>%
 rm(mimic_saps)
 ```
 
-```{r mimic_outcome_definition}
-mimic_main <- mimic_main %>%
-  mutate(
-    hosp_death = hospital_expire_flag,
-    hosp_spdttm = dischtime,
-    hosp_days = round(as.numeric(difftime(hosp_spdttm, admittime, units='days')), digits=3),
-    prlos_death = case_when(
-      hosp_death == 1 ~ 1,
-      as.numeric(difftime(outtime, intime, units='days')) > 14 ~ 1,
-      TRUE ~ 0
-    )
-  )
-```
-
-```{r load_mimic_predicteds}
+```{r create_phats}
 tmp <- mimic_main %>%
   dplyr::select(
     subject_id, hadm_id, stay_id, aps_24, aps_24prob, sofa_24hours, sapsii_prob, prlos_death
@@ -422,4 +274,88 @@ ci.auc(mimic_roc_list$sapsii$`96`)
 
 ```{r}
 roc.test(mimic_roc_list$merged_ensemble$`96`, mimic_roc_list$sapsii$`96`)
+```
+
+## AU ROC
+
+```{r}
+plt_data <- mutate(mimic_roc_data$merged_ensemble, COHORT = 3, timept = paste(hours, '-hours', sep='')) %>%
+  bind_rows(mutate(mimic_roc_data$merged_ensemble, COHORT = 3, timept = 'Comparator, 24-hours')) %>%
+  bind_rows(mutate(mimic_roc_data$sofa_24hours, COHORT = 4, timept = 'Comparator, 24-hours')) %>%
+  bind_rows(mutate(mimic_roc_data$sapsii, COHORT = 5, timept = 'Comparator, 24-hours'))
+
+plt_data <- plt_data %>%
+  filter(
+    hours %in% c(6, 12, 24)
+  ) %>%
+  filter(
+    !(timept == 'Comparator, 24-hours' & hours < 24)
+  )
+
+plt_data <- plt_data %>%
+  mutate(
+    COHORT = factor(COHORT, levels=3:5, 
+      labels=c('External test (MIMIC-IV)','SOFA (MIMIC-IV)','SAPSII (MIMIC-IV)')),
+    timept = factor(timept, levels=c('6-hours','12-hours','24-hours','Comparator, 24-hours'))
+  )
+
+plt <- ggplot(data=plt_data, aes(x=fpr, y=recall, color=COHORT)) + geom_step(size=0.5) + 
+  facet_wrap(~timept) + scale_x_continuous(breaks=seq(0.2,1,0.2), name='1-Specificity') +
+  scale_y_continuous(breaks=seq(0.2,1,0.2), name='Sensitivity') +
+  geom_abline(slope=1, intercept=0, col='firebrick') + theme_light() + 
+  theme(aspect.ratio=1, axis.text = element_text(size=12), 
+        axis.title = element_text(size=12), legend.position="bottom", legend.direction = "horizontal",
+        legend.title=element_blank(), legend.text = element_text(size=12), 
+        strip.text = element_text(size=10)) + guides(color=guide_legend(nrow=2, byrow=TRUE))
+
+plt
+```
+
+
+## Precision-recall
+
+```{r}
+plt <- ggplot(data=plt_data, aes(x=recall, y=precision, color=COHORT)) + geom_step(size=0.5) +
+  facet_wrap(~timept) + scale_x_continuous(breaks=seq(0.2,1,0.2), limits=c(0,1), name = 'Recall') + 
+  scale_y_continuous(breaks=seq(0.2,1,0.2), limits=c(0,1), name = 'Precision') +
+  geom_abline(slope=0, intercept=0.2047, col="darkgreen") + theme_light() +
+  theme(aspect.ratio=1, axis.text = element_text(size=12), 
+        axis.title = element_text(size=12), legend.position="bottom", legend.direction = "horizontal",
+        legend.title=element_blank(), legend.text = element_text(size=12), 
+        strip.text = element_text(size=10)) + guides(color=guide_legend(nrow=2, byrow=TRUE))
+
+plt
+```
+
+## Calibration
+
+```{r}
+plt_data <- mutate(mimic_cal_data$merged_ensemble, COHORT = 3, timept = paste(hours, '-hours', sep='')) %>%
+  bind_rows(mutate(mimic_cal_data$merged_ensemble, COHORT = 3, timept = 'Comparator, 24-hours')) %>%
+  bind_rows(mutate(mimic_cal_data$sapsii, COHORT = 4, timept = 'Comparator, 24-hours'))
+
+plt_data <- plt_data %>%
+  filter(
+    hours %in% c(6, 12, 24)
+  ) %>%
+  filter(
+    !(timept == 'Comparator, 24-hours' & hours < 24)
+  )
+
+plt_data <- plt_data %>%
+  mutate(
+    COHORT = factor(COHORT, levels=3:4, 
+      labels=c('External test (MIMIC-IV)','SAPSII (MIMIC-IV)')),
+    timept = factor(timept, levels=c('6-hours','12-hours','24-hours','Comparator, 24-hours'))
+  )
+
+plt <- ggplot(plt_data, aes(x=mean_pred, y=est, ymin=lwr.ci, ymax=upr.ci, color=COHORT)) + facet_wrap(~timept) +
+  geom_pointrange(size=0.1) + scale_x_continuous(breaks=seq(0.2,1,0.2), limits=c(0,1), name='Mean predicted') + 
+  scale_y_continuous(breaks=seq(0.2,1,0.2), limits=c(0,1), name='Observed rate') + geom_abline(slope=1, intercept=0, col="grey")+
+  theme_light() + theme(aspect.ratio=1, axis.text = element_text(size=12), 
+        axis.title = element_text(size=12), legend.position="bottom", legend.direction = "horizontal",
+        legend.title=element_blank(), legend.text = element_text(size=12), 
+        strip.text = element_text(size=10)) + guides(color=guide_legend(nrow=2, byrow=TRUE))
+
+plt
 ```

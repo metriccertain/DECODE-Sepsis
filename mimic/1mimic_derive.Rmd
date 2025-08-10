@@ -660,11 +660,10 @@ out_tb <- out_tb %>%
 
 out_tb <- out_tb %>%
   mutate(
-    intime = intime_hr,
-    icu_days = round(as.numeric(difftime(outtime, intime, units='days')), digits=3)
+    icu_days = round(as.numeric(difftime(outtime, intime_hr, units='days')), digits=3)
   ) %>%
   dplyr::select(
-    -intime_hr, -outtime_hr
+    -outtime_hr
   ); dim(out_tb)
 
 out_tb <- out_tb %>%
@@ -696,7 +695,7 @@ out_tb <- out_tb %>%
 
 out_tb <- out_tb %>%
   mutate(
-    susp = if_else(as.POSIXct(admittime) - 24*3600 <= suspected_infection_time & suspected_infection_time <= as.POSIXct(intime) + 24*3600 &
+    susp = if_else(as.POSIXct(admittime) - 24*3600 <= suspected_infection_time & suspected_infection_time <= as.POSIXct(intime_hr) + 24*3600 &
                      suspected_infection_time <= outtime, 1, 0)
     ); dim(out_tb)
 
@@ -721,6 +720,14 @@ out_tb <- out_tb %>%
     preiculos = round(as.numeric(difftime(intime, admittime, units='days')), digits=3),
     iculos = round(as.numeric(difftime(outtime, intime, units='days')), digits=3), 
     bmi = round(weight / (height/100)^2, digits=1)
+  )
+
+out_tb <- out_tb %>%
+  mutate(
+    intime = intime_hr
+  ) %>%
+  dplyr::select(
+    -intime_hr
   )
 ```
 
@@ -842,8 +849,8 @@ out_tb <- out_tb %>%
 tmp <- `physionet-data.mimic_hosp.microbiologyevents` %>%
   filter(spec_type_desc == 'SPUTUM') %>%
   filter(org_name != '' & org_itemid != 90856) %>%
+  filter(!is.na(charttime)) %>%
   mutate(
-    charttime = as.POSIXct(charttime, format="%Y-%m-%d %H:%M:%S"), 
     positiveculture = 1
   ) %>%
   dplyr::select(
@@ -857,7 +864,7 @@ tmp <- tmp %>%
   )
 
 tmp <- tmp %>%
-  filter(as.Date(admittime) <= as.Date(charttime) & as.Date(charttime) <= as.Date(dischtime)) %>%
+  filter(admittime <= charttime & charttime <= dischtime) %>%
   arrange(subject_id, hadm_id, stay_id, charttime) %>%
   group_by(subject_id, hadm_id, stay_id) %>%
   slice_head(n=1) %>%
