@@ -626,10 +626,7 @@ qdemo <- qdemo %>%
 ```{r admission_ids}
 qdemo <- qdemo %>%
   mutate(
-    ecmo = 0, 
-    intinf = NA,
-    pulm_edema = NA,
-    pleural_eff = NA
+    ecmo = 0
   )
 
 qdemo <- qdemo %>%
@@ -644,13 +641,11 @@ qdemo <- qdemo %>%
     hco3 = if_else(is.na(hco3), NA, if_else(hco3 < 0, NA, hco3)),
     tidal_vol = if_else(is.na(tidal_vol), NA, if_else(tidal_vol > 1500, NA, tidal_vol)),
     lactring = if_else(lactring>330, 330, lactring),
-    intinf = if_else(intinf>220, 220, intinf)
   )
 
 qdemo <- qdemo %>%
   mutate(
     last = log(ast + 0.1),
-    lptt = log(ptt),
     linr = log(inr),
     llactate = log(lactate + 0.1),
     lpao2 = log(pao2),
@@ -694,7 +689,7 @@ qdemo <- qdemo %>%
     across(
       c(peep, tidal_vol, map, hr, fio2, spo2, temp, rr, lglucose, hgb, lpotassium, sodium, lplatelet,
          hct, ph, lcreatinine, lwbc, lbun, hco3, lpaco2, lpao2, llactate,
-          linr, anion_gap, lptt, last, gcs), ~vctrs::vec_fill_missing(.x, direction = 'down', max_fill = 23)
+          linr, anion_gap, last, gcs), ~vctrs::vec_fill_missing(.x, direction = 'down', max_fill = 23)
     )
   ) %>%
   ungroup()
@@ -721,8 +716,8 @@ qdemo <- qdemo %>%
 qdemo_new <- qdemo %>%
   dplyr::select(
     subject_id, hadm_id, stay_id, dttm, row_id, inicu, peep, tidal_vol, map, hr, fio2, spo2, temp, rr, lglucose, hgb, lpotassium, 
-    sodium, lplatelet, hct, ph, lcreatinine, lwbc, lbun, hco3, lpaco2, lpao2, llactate, linr, anion_gap, lptt, last, gcs, 
-    ecmo, cpn, NOREPINEPHRINE, EPINEPHRINE, DOBUTAMINE, VASOPRESSIN, lactring, intinf, pulm_edema, pleural_eff, pneumonia, 
+    sodium, lplatelet, hct, ph, lcreatinine, lwbc, lbun, hco3, lpaco2, lpao2, llactate, linr, anion_gap, last, gcs, 
+    ecmo, cpn, NOREPINEPHRINE, EPINEPHRINE, DOBUTAMINE, VASOPRESSIN, lactring, pneumonia, 
     invasive, noninvasive, vtother, age, male, lpre_icu_days, bmi, charlson_score, surg, transp, htn_hist, mi_hist, chf_hist, 
     pvd_hist, dementia_hist, cva_hist, copd_hist, asthma_hist, ild_hist, chronic_pulmonary_disease_hist, 
     connective_tissue_disease_hist, dm_hist, pud_hist, cirr_mild_liver_disease_hist, hemiplegia_paraplegia_hist, 

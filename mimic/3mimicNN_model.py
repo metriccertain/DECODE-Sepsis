@@ -46,7 +46,7 @@ admit_ids = admit_ids.sort_values(by = ["admit_id"])
 
 # serial data
 dat = dat.sort_values(by = ["admit_id","row_id"])
-dat = dat.drop(["subject_id","hadm_id","stay_id","dttm","prlos_death","intinf","pulm_edema","pleural_eff","lptt"], axis=1)
+dat = dat.drop(["subject_id","hadm_id","stay_id","dttm","prlos_death"], axis=1)
 
 print('serial data shape:', dat.shape)
 
