@@ -41,10 +41,16 @@ The development cohort was split into training (70%), validation (20%), and test
 
 Evaluation of performance was assessed at 15-minute intervals starting 2 hours after ICU admission through 24 hours in the test cohorts (internal non-random test and external test), demonstrating how the developed models can be applied at any timepoint after ICU admission despite model development using 2-hour intervals. Model performance was assessed using area under the receiver-operator-characteristic curve (AUROC) as well as visually plotting the receiver-operator-characteristic (ROC) curve and the precision-recall curve. Model calibration was assessed by grouping patients according to estimated probability (0 to <10%, 10 to <20%, …, 90 to 100%).
 
-We compare to SAPS II and SOFA scores at 24 hours as each requires 24 hours of data before making a prediction. We include these in evaluation of ROC curves and precision-recall curves. AUROC is reported with 95% confidence intervals; comparison between our model and SAPS II and SOFA are evaluated using the DeLong test. Variable importance is described for the neural network submodel (one of the five submodels of the ensemble) by plotting mean absolute SHAP (SHapley Additive exPlanations) values.  SHAP values were estimated for 20 random observations at each of 3 time-points (8, 16, and 24 hours following admission) from the training data. 
+We compare to SAPS II and SOFA scores at 24 hours as each requires 24 hours of data before making a prediction. We include these in evaluation of ROC curves and precision-recall curves. AUROC is reported with 95% confidence intervals; comparison between our model and SAPS II and SOFA are evaluated using the DeLong test. Variable importance is described for the neural network submodel (one of the five submodels of the ensemble) by plotting mean absolute SHAP (SHapley Additive exPlanations) values.  SHAP values were estimated for 20 random observations at each of 3 time-points (8, 16, and 24 hours following admission) from the training data.
 
 ### Features
 
 Time-Independent (fixed at admission): age, sex, BMI, Charlson score; past medical history of: hypertension, myocardial infarction, chronic heart failure, peripheral vascular disease, dementia, cerebrovascular accident, chronic obstructive pulmonary disease, asthma, idiopathic lung disease, chronic pulmonary disease, connective tissue disease, diabetes, diabetes with complications, peptic ulcers, cirrhosis/mild liver disease, moderate/severe liver disease, hemi/paraplegia, moderate/severe kidney disease, solid tumor, leukemia, lymphoma, metastatic cancer and AIDS; and admission characteristics: pre-ICU LOS, surgical admission, and transplant.
 
 Time-Dependent (updated as new data are available during the admission): interventions during admission: invasive ventilation, noninvasive ventilation, other ventilation (e.g., nasal cannula), ECMO, central/parenteral nutrition, norepinephrine, epinephrine, dobutamine, vasopressin and ringers lactate; ventilator and vital signs: PEEP, tidal volume, mean arterial pressure, heart rate, FiO2, SpO2, temperature, respiratory rate, Glasgow coma scale; diagnoses: pneumonia; and laboratory values: glucose, hemoglobin, potassium, sodium, platelet count, hematocrit, pH, creatinine, white blood cell count, BUN, HCO3, PaCO2, PaO2, lactate, INR, anion gap, and AST.
+
+### Software
+
+R Version 4.2.2 (R Foundation for Statistical Computing, Vienna, Austria)
+Python Version 3.10.11
+Tensorflow Version 2.13.0
