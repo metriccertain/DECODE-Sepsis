@@ -21,7 +21,6 @@ library(dplyr)
 library(tidyr)
 library(vctrs)
 library(lubridate)
-library(arsenal)
 
 row_limit <- -1
 
