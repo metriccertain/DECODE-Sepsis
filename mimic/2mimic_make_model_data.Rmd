@@ -178,7 +178,9 @@ vitals <- vitals %>%
 ```{r check_vitals_data}
 vitals <- vitals %>%
   pivot_longer(cols=peep:rr, names_to = 'chartname', values_to = 'chartvalue') %>%
-  filter(!is.na(chartvalue))
+  filter(
+    !is.na(chartvalue)
+  )
 
 tmp <- demo %>%
   dplyr::select(
@@ -189,11 +191,8 @@ vitals <- vitals %>%
   inner_join(tmp, 'subject_id', relationship='many-to-many')
 
 vitals <- vitals %>%
-  filter(intime - 6*3600 <= charttime & charttime <= intime + 1.1*24*3600)
-
-vitals <- vitals %>%
-  mutate(
-    chartname = toupper(chartname)
+  filter(
+    intime - 6*3600 <= charttime & charttime <= intime + 1.1*24*3600
   )
 ```
 
@@ -221,7 +220,7 @@ tmp <- tmp %>%
 
 tmp <- tmp %>%
   filter(
-    chartname %in% toupper(vitals_list)
+    chartname %in% vitals_list
   ); dim(tmp)
 
 tmp <- tmp %>%
@@ -231,9 +230,6 @@ tmp <- tmp %>%
   ungroup(); dim(tmp)
 
 tmp <- tmp %>%
-  mutate(
-    chartname = tolower(chartname)
-  ) %>%
   dplyr::select(
     -charttime
   ) %>%
@@ -261,7 +257,9 @@ labs <- labs %>%
 ```{r check_labs_data}
 labs <- labs %>%
   pivot_longer(cols=glucose:ast, names_to = 'chartname', values_to = 'chartvalue') %>%
-  filter(!is.na(chartvalue))
+  filter(
+    !is.na(chartvalue)
+  )
 
 labs <- labs %>%
   distinct()
@@ -275,18 +273,15 @@ labs <- labs %>%
   inner_join(tmp, join_by(subject_id), relationship='many-to-many')
 
 labs <- labs %>%
-  filter(as_datetime(intime) - hours(6) <= charttime & charttime <= as_datetime(intime) + hours(25))
-
-labs <- labs %>%
-  mutate(
-    chartname = toupper(chartname)
+  filter(
+    as_datetime(intime) - hours(6) <= charttime & charttime <= as_datetime(intime) + hours(25)
   )
 ```
 
 ```{r join_labs_data}
 # last before admission
 labs_list <- c("glucose", "hgb", "potassium", "sodium", "platelet", "hct", "ph", "creatinine", "wbc", "bun",
-               "hco3", "paco2", "pao2", "lactate", "inr", "anion_gap", "ptt", "ast")
+          "hco3", "paco2", "pao2", "lactate", "inr", "anion_gap", "ptt", "ast")
 
 labs1 <- qdemo %>%
   mutate(
@@ -313,7 +308,7 @@ labs1 <- labs1 %>%
 
 labs1 <- labs1 %>%
   filter(
-    chartname %in% toupper(labs_list)
+    chartname %in% labs_list
   ); dim(labs1)
 
 labs1 <- labs1 %>%
@@ -323,9 +318,6 @@ labs1 <- labs1 %>%
   ungroup(); dim(labs1)
 
 labs1 <- labs1 %>%
-  mutate(
-    chartname = tolower(chartname)
-  ) %>%
   dplyr::select(
     -charttime
   ) %>%
@@ -353,7 +345,7 @@ tmp <- tmp %>%
 
 tmp <- tmp %>%
   filter(
-    chartname %in% toupper(labs_list)
+    chartname %in% labs_list
   ); dim(tmp)
 
 tmp <- tmp %>%
@@ -363,9 +355,6 @@ tmp <- tmp %>%
   ungroup(); dim(tmp)
 
 tmp <- tmp %>%
-  mutate(
-    chartname = tolower(chartname)
-  ) %>%
   dplyr::select(
     -charttime
   ) %>%
@@ -379,24 +368,24 @@ qdemo <- qdemo %>%
 
 qdemo <- qdemo %>%
   mutate(
-    , glucose = coalesce(glucose.x, glucose.y)
-    , hgb = coalesce(hgb.x, hgb.y)
-    , potassium = coalesce(potassium.x, potassium.y)
-    , sodium = coalesce(sodium.x, sodium.y)
-    , platelet = coalesce(platelet.x, platelet.y)
-    , hct = coalesce(hct.x, hct.y)
-    , ph = coalesce(ph.x, ph.y)
-    , creatinine = coalesce(creatinine.x, creatinine.y)
-    , wbc = coalesce(wbc.x, wbc.y)
-    , bun = coalesce(bun.x, bun.y)
-    , hco3 = coalesce(hco3.x, hco3.y)
-    , paco2 = coalesce(paco2.x, paco2.y)
-    , pao2 = coalesce(pao2.x, pao2.y)
-    , lactate = coalesce(lactate.x, lactate.y)
-    , inr = coalesce(inr.x, inr.y)
-    , anion_gap = coalesce(anion_gap.x, anion_gap.y)
-    , ptt = coalesce(ptt.x, ptt.y)
-    , ast = coalesce(ast.x, ast.y)
+    glucose = coalesce(glucose.x, glucose.y),
+    hgb = coalesce(hgb.x, hgb.y),
+    potassium = coalesce(potassium.x, potassium.y),
+    sodium = coalesce(sodium.x, sodium.y),
+    platelet = coalesce(platelet.x, platelet.y),
+    hct = coalesce(hct.x, hct.y),
+    ph = coalesce(ph.x, ph.y),
+    creatinine = coalesce(creatinine.x, creatinine.y),
+    wbc = coalesce(wbc.x, wbc.y),
+    bun = coalesce(bun.x, bun.y),
+    hco3 = coalesce(hco3.x, hco3.y),
+    paco2 = coalesce(paco2.x, paco2.y),
+    pao2 = coalesce(pao2.x, pao2.y),
+    lactate = coalesce(lactate.x, lactate.y),
+    inr = coalesce(inr.x, inr.y),
+    anion_gap = coalesce(anion_gap.x, anion_gap.y),
+    ptt = coalesce(ptt.x, ptt.y),
+    ast = coalesce(ast.x, ast.y)
     ) %>%
     dplyr::select(
       -ends_with('.x'), -ends_with('.y')
@@ -557,8 +546,12 @@ vent <- read.csv(file='./derived/v4/ventilation.csv', nrows=row_limit)
 
 ```{r ventilation_flags}
 tmp <- vent %>%
-  filter(!is.na(ventilation_status)) %>%
-  filter(ventilation_status != 'None') %>%
+  filter(
+    !is.na(ventilation_status)
+  ) %>%
+  filter(
+    ventilation_status != 'None'
+  ) %>%
   mutate(
     starttime = as.POSIXct(starttime), 
     endtime = as.POSIXct(endtime),
