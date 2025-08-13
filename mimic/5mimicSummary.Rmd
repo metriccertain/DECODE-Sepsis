@@ -224,30 +224,37 @@ mimic_auc_data <- lapply(mimic_roc_list, FUN = function(x) do.call(rbind, lapply
 
 ## AU ROC (MIMIC IV)
 
-### Ensemble model at 6, 12, 18, and 24 hours
+### Ensemble model at 2, 6, 12, 18, and 24 hours
 
-#### 6
+#### 2 hours
+
+```{r}
+auc(mimic_roc_list$merged_ensemble$`8`)
+ci.auc(mimic_roc_list$merged_ensemble$`8`)
+```
+
+#### 6 hours
 
 ```{r}
 auc(mimic_roc_list$merged_ensemble$`24`)
 ci.auc(mimic_roc_list$merged_ensemble$`24`)
 ```
 
-#### 12
+#### 12 hours
 
 ```{r}
 auc(mimic_roc_list$merged_ensemble$`48`)
 ci.auc(mimic_roc_list$merged_ensemble$`48`)
 ```
 
-#### 18
+#### 18 hours
 
 ```{r}
 auc(mimic_roc_list$merged_ensemble$`72`)
 ci.auc(mimic_roc_list$merged_ensemble$`72`)
 ```
 
-#### 24
+#### 24 hours
 
 ```{r}
 auc(mimic_roc_list$merged_ensemble$`96`)

@@ -24,7 +24,6 @@ library(lubridate)
 
 row_limit <- -1
 
-serial_minutes <- 15
 min_serial_count <- 2*4
 max_serial_count <- 24*4
 ```
@@ -51,8 +50,8 @@ demo <- read.csv(file='./derived/v4/demo.csv', nrows=row_limit); dim(demo)
 
 demo <- demo %>%
   mutate(
-    intime = as.POSIXct(intime), 
-    outtime = as.POSIXct(outtime),
+    intime = as_datetime(intime), 
+    outtime = as_datetime(outtime),
     pneumoniadttm = if_else(pneumoniadttm == '', NA, pneumoniadttm),
     preiculos = if_else(preiculos <= 0, 0, preiculos),
     lpre_icu_days = log(preiculos + 0.001)
@@ -97,10 +96,10 @@ demo <- demo %>%
 ```{r expand_qdemo}
 qdemo <- demo %>%
   mutate(
-    start_dttm = as_datetime(intime) - minutes(minute(as_datetime(intime))) - seconds(second(as_datetime(intime)))
+    start_dttm = intime - minutes(minute(intime)) - seconds(second(intime))
   ) %>%
   rowwise() %>%
-  mutate(subject_id, intime, outtime, dttm = list(start_dttm + seq(0, 48*3600, by = serial_minutes*60))) %>%
+  mutate(subject_id, intime, outtime, dttm = list(seq(start_dttm, start_dttm + hours(48), by = '15 mins'))) %>%
   unnest(dttm) %>%
   ungroup() %>%
   filter(
@@ -170,7 +169,7 @@ vitals <- read.csv(file='./derived/v4/vitals.csv', nrows=row_limit)
 
 vitals <- vitals %>%
   mutate(
-    charttime = as.POSIXct(charttime)
+    charttime = as_datetime(charttime)
   )
 ```
 
@@ -191,7 +190,7 @@ vitals <- vitals %>%
 
 vitals <- vitals %>%
   filter(
-    intime - 6*3600 <= charttime & charttime <= intime + 1.1*24*3600
+    intime - hours(6) <= charttime & charttime <= intime + hours(26)
   )
 ```
 
@@ -200,7 +199,7 @@ vitals_list <- c("peep", "tidal_vol", "map", "hr", "fio2", "spo2", "temp", "rr")
 
 tmp <- qdemo %>%
   mutate(
-    prior_dttm = dttm - 15*60
+    prior_dttm = dttm - minutes(15)
   ) %>%
   dplyr::select(
     subject_id, intime, dttm, prior_dttm
@@ -243,7 +242,7 @@ labs <- read.csv(file='./derived/v4/labs.csv', nrows=row_limit)
 
 labs <- labs %>%
   mutate(
-    charttime = as.POSIXct(charttime)
+    charttime = as_datetime(charttime)
   ); dim(labs)
 
 labs <- labs %>%
@@ -284,7 +283,7 @@ labs_list <- c("glucose", "hgb", "potassium", "sodium", "platelet", "hct", "ph",
 
 labs1 <- qdemo %>%
   mutate(
-    prior_dttm = dttm - 6*3600
+    prior_dttm = dttm - hours(6)
   ) %>%
   arrange(subject_id, intime, dttm) %>%
   group_by(subject_id, intime) %>%
@@ -325,7 +324,7 @@ labs1 <- labs1 %>%
 # serial data
 tmp <- qdemo %>%
   mutate(
-    prior_dttm = dttm - 15*60
+    prior_dttm = dttm - minutes(15)
   ) %>%
   dplyr::select(
     subject_id, intime, dttm, prior_dttm
@@ -396,7 +395,7 @@ gcs <- read.csv(file='./derived/v4/gcs.csv', nrows=row_limit)
 
 gcs <- gcs %>%
   mutate(
-    charttime = as.POSIXct(charttime)
+    charttime = as_datetime(charttime)
   ) %>%
   dplyr::select(
     subject_id, charttime, gcs
@@ -405,7 +404,7 @@ gcs <- gcs %>%
 
 tmp <- qdemo %>%
   mutate(
-    prior_dttm = dttm - 15*60
+    prior_dttm = dttm - minutes(15)
   ) %>%
   dplyr::select(
     subject_id, intime, dttm, prior_dttm
@@ -459,8 +458,8 @@ vasos <- read.csv(file='./derived/v4/vasoactives.csv', nrows=row_limit)
 ```{r vasoactives_flags}
 tmp <- vasos %>%
   mutate(
-    starttime = as.POSIXct(starttime), 
-    endtime = as.POSIXct(endtime),
+    starttime = as_datetime(starttime), 
+    endtime = as_datetime(endtime),
     med = toupper(med), 
     flag = 1
   ) %>%
@@ -497,22 +496,21 @@ ringers_lactate <- read.csv('./derived/v4/ringers_lactate.csv', nrows=row_limit)
 
 ringers_lactate <- ringers_lactate %>%
   mutate(
-    starttime = as.POSIXct(starttime), 
-    endtime = as.POSIXct(endtime)
+    starttime = as_datetime(starttime), 
+    endtime = as_datetime(endtime)
   )
 
 tmp <- ringers_lactate %>%
   mutate(
     endtime = case_when(
-      ordercategorydescription != 'Continuous IV' ~ starttime + 3600,
+      ordercategorydescription != 'Continuous IV' ~ starttime + hours(1),
       TRUE ~ endtime
     )
   )
 
 tmp <- tmp %>%
   mutate(
-    ck = ((as.numeric(endtime) - as.numeric(starttime)) / 3600),
-    fluid_rate = 0.25 * round(amount / ((as.numeric(endtime) - as.numeric(starttime)) / 3600), digits=3)
+    fluid_rate = 0.25 * round(amount / as.numeric(difftime(endtime, starttime, units='hours')), digits=3)
   )
 
 tmp <- tmp %>%
@@ -552,8 +550,8 @@ tmp <- vent %>%
     ventilation_status != 'None'
   ) %>%
   mutate(
-    starttime = as.POSIXct(starttime), 
-    endtime = as.POSIXct(endtime),
+    starttime = as_datetime(starttime), 
+    endtime = as_datetime(endtime),
     flag = 1
   ) %>%
   dplyr::select(
