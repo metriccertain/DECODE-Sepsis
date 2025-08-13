@@ -311,7 +311,6 @@ plt <- ggplot(data=plt_data, aes(x=fpr, y=recall, color=COHORT)) + geom_step(siz
 plt
 ```
 
-
 ## Precision-recall
 
 ```{r}
