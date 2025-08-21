@@ -649,6 +649,12 @@ qdemo <- qdemo %>%
   )
 ```
 
+```{r}
+if (params$write_data_mode == 'write') {
+  write.csv(qdemo, file='./derived/v4/qdemo.csv', row.names=FALSE, na='')
+}
+```
+
 ```{r get_lvcf}
 # looks like fio2 can be higher than .21 off vent, so leave fio2 as-is and set peep and tidal volume
 # values off vent to 0, then store result in temporary file.  these are the values that will end up populating
