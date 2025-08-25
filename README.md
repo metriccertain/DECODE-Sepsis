@@ -1,6 +1,8 @@
-# DT1_Outcomes - MIMIC-IV as an external test set
+# DECODE-Sepsis - Online Supplement
 
 ## General info
+This repository includes an online supplement for Hanson, et al. "Deep learning Ensemble for Critical Outcome Detection and Evaluation in Sepsis (DECODE-Sepsis)".  Herein, we provide a detailed statistical methods and programs to apply our model for death or prolonged hospitalization in sepsis to MIMIC-IV data (v2.2 used in the reported manuscript).
+
 SQL programs are copied from the [MIMIC concepts code repository](https://github.com/MIT-LCP/mimic-code/tree/main/mimic-iv/concepts).  We used the code from the BigQuery folder so we had to modify slightly to work for SQLite.  Specifically, parts using date and date-time functions available in BigQuery were modified to use functions available in SQLite.
 
 Rmd programs are used to derive the MIMIC-IV data and to write CSV files that are then read in by the Python programs
