@@ -147,19 +147,19 @@ X_mimic = np.array(X_mimic)
 X_mimic = np.reshape(X_mimic, (y_mimic.shape[0], predict_rows, X_mimic.shape[1]))
 
 # load the models
-model_merged_cnnsmall = tf.keras.models.load_model('../data/fitted_models/0053/merged_cnnsmall_model/merged_cnnsmall_tracebacks')
-model_merged_cnntiny = tf.keras.models.load_model('../data/fitted_models/0053/merged_cnntiny_model/merged_cnntiny_tracebacks')
-model_merged_lstmsmall = tf.keras.models.load_model('../data/fitted_models/0053/merged_lstmsmall_model/merged_lstmsmall_tracebacks')
-model_merged_lstmtiny = tf.keras.models.load_model('../data/fitted_models/0053/merged_lstmtiny_model/merged_lstmtiny_tracebacks')
+cnnsmall_model = tf.keras.models.load_model('../data/fitted_models/0053/cnnsmall_model.keras')
+cnntiny_model = tf.keras.models.load_model('../data/fitted_models/0053/cnntiny_model.keras')
+lstmsmall_model = tf.keras.models.load_model('../data/fitted_models/0053/lstmsmall_model.keras')
+lstmtiny_model = tf.keras.models.load_model('../data/fitted_models/0053/lstmtiny_model.keras')
 
 ############################################################
 # test mimic data
 ############################################################
 out_mimic = ids_mimic
 
-out_mimic["yhat_merged_cnnsmall"] = model_merged_cnnsmall.predict([X_mimic, X1_mimic])
-out_mimic["yhat_merged_cnntiny"] = model_merged_cnntiny.predict([X_mimic, X1_mimic])
-out_mimic["yhat_merged_lstmsmall"] = model_merged_lstmsmall.predict([X_mimic, X1_mimic])
-out_mimic["yhat_merged_lstmtiny"] = model_merged_lstmtiny.predict([X_mimic, X1_mimic])
+out_mimic["yhat_merged_cnnsmall"] = cnnsmall_model.predict([X_mimic, X1_mimic])
+out_mimic["yhat_merged_cnntiny"] = cnntiny_model.predict([X_mimic, X1_mimic])
+out_mimic["yhat_merged_lstmsmall"] = lstmsmall_model.predict([X_mimic, X1_mimic])
+out_mimic["yhat_merged_lstmtiny"] = lstmtiny_model.predict([X_mimic, X1_mimic])
 
-out_mimic.to_csv('./results/v4/ztest_mimicRNN_merged_predicted.csv', index=False)
+out_mimic.to_csv('./results/v4/zmimicRNN_predicted.csv', index=False)

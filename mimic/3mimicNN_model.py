@@ -129,17 +129,17 @@ X1_mimic = np.array(X1_mimic)
 X1_mimic = np.reshape(X1_mimic, (y_mimic.shape[0], X1_mimic.shape[1]))
 
 # load the model
-model = tf.keras.models.load_model('../data/fitted_models/0053/nn_model/NN_tracebacks')
+nn_model = tf.keras.models.load_model('../data/fitted_models/0053/nn_model.keras')
 
-model.summary()
+nn_model.summary()
 
 ############################################################
 # test mimic data
 ############################################################
 out_mimic = ids_mimic
 
-out_mimic["yhat_nn"] = model.predict([X1_mimic])
+out_mimic["yhat_nn"] = nn_model.predict([X1_mimic])
 
-out_mimic.to_csv('./results/v4/ztest_mimicNN_predicted.csv', index=False)
+out_mimic.to_csv('./results/v4/zmimicNN_predicted.csv', index=False)
 
 out_mimic.shape
