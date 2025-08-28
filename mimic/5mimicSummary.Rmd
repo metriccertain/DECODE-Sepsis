@@ -56,12 +56,12 @@ get_cal_data <- function(data, response, predictor) {
 ```
 
 ```{r read_predicteds}
-pred_nn <- read.csv(file='./results/v4/ztest_mimicNN_predicted.csv') %>%
+pred_nn <- read.csv(file='./results/v4/zmimicNN_predicted.csv') %>%
   dplyr::select(
     subject_id, hadm_id, stay_id, admit_id, session_id, starts_with('yhat')
   )
 
-pred_rnn <- read.csv(file='./results/v4/ztest_mimicRNN_merged_predicted.csv') %>%
+pred_rnn <- read.csv(file='./results/v4/zmimicRNN_merged_predicted.csv') %>%
   dplyr::select(
     subject_id, hadm_id, stay_id, admit_id, session_id, starts_with('yhat')
   )
