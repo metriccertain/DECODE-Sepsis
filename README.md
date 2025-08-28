@@ -11,9 +11,9 @@ Python programs read in CSV data output above, get the data into the shape that 
 
 ### Quick start
 
-Once you have copied the MIMIC-IV data one strategy for a quick start may be
-  1. copy the two data folders into the ./mimic/ folder of this project so the relative paths will work.
-  2. create the ./mimic/derived/v4/ and ./mimic/results/v4/ folders within this project
+Once you have copied the MIMIC-IV data, one strategy for a quick start may be to
+  1. Copy this repository into the mimic folder at the same level as the \code{hosp/} and \code{icu/} data folders so the relative paths will work.
+  2. Run the programs with numeric prefixes (e.g., 1mimic_derive.Rmd, ..) sequentially to generate the study data, calculate the predicted probabilities, and summarize the model performance.
 
 ## Detailed statistical methods
 
