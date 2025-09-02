@@ -61,7 +61,7 @@ pred_nn <- read.csv(file='./results/v4/zmimicNN_predicted.csv') %>%
     subject_id, hadm_id, stay_id, admit_id, session_id, starts_with('yhat')
   )
 
-pred_rnn <- read.csv(file='./results/v4/zmimicRNN_merged_predicted.csv') %>%
+pred_rnn <- read.csv(file='./results/v4/zmimicRNN_predicted.csv') %>%
   dplyr::select(
     subject_id, hadm_id, stay_id, admit_id, session_id, starts_with('yhat')
   )
